@@ -1,0 +1,43 @@
+# Environment
+.env
+
+# Chrome persistent profile (contains cookies, sessions, cache)
+chrome_profile/
+
+# Generated reports
+reports/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Playwright
+test-results/
+playwright-report/
+
+# Logs
+*.log
