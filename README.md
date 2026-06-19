@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-ReAct-orange)](https://github.com/langchain-ai/langgraph)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: GPL v2](https://img.shields.io/badge/license-GPLv2-green)](LICENSE)
 [![Passive only](https://img.shields.io/badge/sources-public%20only-lightgrey)](https://github.com/giovanniromero-dev/osint-agent)
 
 ---

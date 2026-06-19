@@ -8,12 +8,12 @@ version = "1.0.0"
 description = "Passive OSINT reconnaissance agent powered by LangGraph and DeepSeek"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "GPL-2.0-only" }
 keywords = ["osint", "reconnaissance", "security", "langgraph", "ai"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Information Technology",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
