@@ -38,14 +38,14 @@ log = get_logger("osint.agent")
 VERSION = "1.0.0"
 
 theme = Theme({
-    "banner":      "bold magenta",
-    "header":      "bold cyan",
-    "tool.name":   "cyan bold",
+    "banner":      "#00ff00 bold",
+    "header":      "#00ff00 bold",
+    "tool.name":   "#00ff00 bold",
     "tool.args":   "dim white",
     "tool.output": "dim white",
     "agent":       "white",
-    "info":        "blue",
-    "success":     "green bold",
+    "info":        "#00ff00",
+    "success":     "#00ff00 bold",
     "warn":        "yellow",
     "error":       "red bold",
     "muted":       "dim",
@@ -300,7 +300,7 @@ async def run_agent(
     if not as_json and not quiet:
         console.print(Panel(
             f"[header]Target:[/header] {task}",
-            border_style="cyan",
+            border_style="#00ff00",
             expand=False,
         ))
 
@@ -394,14 +394,14 @@ async def run_agent(
 
 T = {
     "es": {
-        "ask_lang": "Language:\n  [1] Spanish\n  [2] English",
+        "ask_lang": "Language:\n  [[#00ff00]1[/#00ff00]] Spanish\n  [[#00ff00]2[/#00ff00]] English",
         "ask_lang_prompt": "Select [1/2]: ",
         "invalid": "Opción no válida.",
         "title": "  AGENTE OSINT - Reconocimiento Pasivo",
-        "menu1": "[1] Nueva investigación",
-        "menu2": "[2] Consultar un reporte existente",
-        "menu3": "[3] Análisis de vulnerabilidades",
-        "menuq": "[q] Salir",
+        "menu1": "[[#00ff00]1[/#00ff00]] Nueva investigación",
+        "menu2": "[[#00ff00]2[/#00ff00]] Consultar un reporte existente",
+        "menu3": "[[#00ff00]3[/#00ff00]] Análisis de vulnerabilidades",
+        "menuq": "[[#00ff00]q[/#00ff00]] Salir",
         "select": "Selecciona: ",
         "examples": "\nEjemplos:",
         "target": "\nObjetivo: ",
@@ -418,14 +418,14 @@ T = {
         "error": "Error: ",
     },
     "en": {
-        "ask_lang": "Language:\n  [1] Spanish\n  [2] English",
+        "ask_lang": "Language:\n  [[#00ff00]1[/#00ff00]] Spanish\n  [[#00ff00]2[/#00ff00]] English",
         "ask_lang_prompt": "Select [1/2]: ",
         "invalid": "Invalid option.",
         "title": "  OSINT AGENT - Passive Reconnaissance",
-        "menu1": "[1] New investigation",
-        "menu2": "[2] Ask about an existing report",
-        "menu3": "[3] Vulnerability analysis of a report",
-        "menuq": "[q] Quit",
+        "menu1": "[[#00ff00]1[/#00ff00]] New investigation",
+        "menu2": "[[#00ff00]2[/#00ff00]] Ask about an existing report",
+        "menu3": "[[#00ff00]3[/#00ff00]] Vulnerability analysis of a report",
+        "menuq": "[[#00ff00]q[/#00ff00]] Quit",
         "select": "Select: ",
         "examples": "\nExamples:",
         "target": "\nTarget: ",
@@ -536,7 +536,7 @@ def pick_report(lang: str = "en"):
         return None
     console.print(t["available"])
     for i, p in enumerate(reports[:30], 1):
-        console.print(f"  [[cyan]{i}[/cyan]] {p.name}")
+        console.print(f"  [[#00ff00]{i}[/#00ff00]] {p.name}")
     sel = input(t["choose"]).strip()
     if not sel.isdigit() or not (1 <= int(sel) <= len(reports)):
         console.print(f"[warn]{t['bad_sel']}[/warn]")
@@ -549,7 +549,7 @@ async def report_qa(lang: str = "en") -> None:
     report_path = pick_report(lang)
     if report_path is None:
         return
-    console.print(f"{t['report']}[cyan]{report_path.name}[/cyan]")
+    console.print(f"{t['report']}[#00ff00]{report_path.name}[/#00ff00]")
     console.print(f"[muted]{t['ask_hint']}[/muted]")
     while True:
         question = input(t["question"]).strip()
@@ -567,7 +567,7 @@ async def vuln_analysis(lang: str = "en") -> None:
     report_path = pick_report(lang)
     if report_path is None:
         return
-    console.print(f"[info]{t['analyzing']}[/info][cyan]{report_path.name}[/cyan] ...")
+    console.print(f"[info]{t['analyzing']}[/info][#00ff00]{report_path.name}[/#00ff00] ...")
     try:
         analysis = await analyze_vulnerabilities(report_path, language=lang)
     except Exception as exc:  # noqa: BLE001
@@ -586,9 +586,9 @@ async def interactive() -> None:
     while True:
         console.print()
         console.print(Panel(
-            f"[cyan]{t['menu1']}[/cyan]\n{t['menu2']}\n{t['menu3']}\n[muted]{t['menuq']}[/muted]",
+            f"{t['menu1']}\n{t['menu2']}\n{t['menu3']}\n{t['menuq']}",
             title=f"[header]{t['title']}[/header]",
-            border_style="cyan",
+            border_style="#00ff00",
         ))
 
         choice = input(t["select"]).strip().lower()
