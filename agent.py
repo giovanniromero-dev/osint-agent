@@ -620,6 +620,11 @@ examples:
   osint-agent "John Smith CEO Acme" --type person --lang es
   osint-agent 8.8.8.8 --modules ip,dns --quiet
   osint-agent example.com --output ./my-reports --open
+  osint-agent example.com --stealth --request-delay 2   # authorized targets only
+
+For lawful, authorized use only. Collects public information from public
+sources; no active scanning or exploitation. You are responsible for
+complying with all applicable laws (e.g. GDPR) and each service's terms.
         """,
     )
     parser.add_argument("target", nargs="*",
@@ -653,7 +658,20 @@ examples:
     parser.add_argument("--open", action="store_true", dest="open_report",
                         help="Auto-open the report file after the investigation.")
     parser.add_argument("--delay", type=float, default=0.0, metavar="SECONDS",
-                        help="Delay in seconds between tool calls (default: 0).")
+                        help="Delay in seconds between agent tool calls (default: 0).")
+
+    # Responsible-use controls (override .env defaults for this run).
+    parser.add_argument("--stealth", action="store_true", default=None,
+                        help="Enable anti-bot fingerprint spoofing. Use ONLY on sources "
+                             "you are authorized to test; may breach their Terms of Service.")
+    parser.add_argument("--ignore-robots", action="store_true", default=None,
+                        dest="ignore_robots",
+                        help="Ignore robots.txt when navigating (default: respect it).")
+    parser.add_argument("--request-delay", type=float, default=None, metavar="SECONDS",
+                        dest="request_delay",
+                        help="Minimum seconds between page navigations (default: 1.0).")
+    parser.add_argument("--user-agent", default=None, metavar="UA", dest="user_agent",
+                        help="Override the User-Agent sent to sites.")
     return parser.parse_args(argv)
 
 
@@ -666,6 +684,14 @@ def apply_overrides(args: argparse.Namespace) -> None:
         object.__setattr__(settings, "max_steps", args.max_steps)
     if args.output:
         object.__setattr__(settings, "reports_dir", Path(args.output))
+    if args.stealth:
+        object.__setattr__(settings, "stealth", True)
+    if args.ignore_robots:
+        object.__setattr__(settings, "respect_robots", False)
+    if args.request_delay is not None:
+        object.__setattr__(settings, "request_delay", args.request_delay)
+    if args.user_agent:
+        object.__setattr__(settings, "user_agent", args.user_agent)
 
 
 async def main() -> None:

@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import re
 import socket
+import time
+from urllib import robotparser
 from urllib.parse import urlparse, quote as url_quote
 
 from langchain_core.tools import tool
@@ -85,7 +87,11 @@ async def ensure_browser() -> Page:
 
     _playwright_instance = await async_playwright().start()
     profile_dir = str(settings.chrome_profile_dir)
-    common_args = ["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+    # Anti-automation flag and a browser-like UA are only used in stealth mode.
+    common_args = ["--no-sandbox"]
+    if settings.stealth:
+        common_args.append("--disable-blink-features=AutomationControlled")
+    ua = _BROWSER_UA if settings.stealth else settings.user_agent
     try:
         context = await _playwright_instance.chromium.launch_persistent_context(
             user_data_dir=profile_dir,
@@ -93,8 +99,12 @@ async def ensure_browser() -> Page:
             headless=settings.headless,
             args=common_args + ["--start-maximized"],
             no_viewport=not settings.headless,
+            user_agent=ua,
         )
-        log.info("Launched Chrome with persistent profile (headless=%s)", settings.headless)
+        log.info(
+            "Launched Chrome with persistent profile (headless=%s, stealth=%s)",
+            settings.headless, settings.stealth,
+        )
     except Exception as exc:
         log.warning("Real Chrome not available (%s) - falling back to Chromium", exc)
         context = await _playwright_instance.chromium.launch_persistent_context(
@@ -102,10 +112,11 @@ async def ensure_browser() -> Page:
             headless=settings.headless,
             args=common_args,
             viewport={"width": 1280, "height": 800},
-            user_agent=settings.user_agent,
+            user_agent=ua,
         )
     _page = await context.new_page()
-    await apply_stealth(_page)
+    if settings.stealth:
+        await apply_stealth(_page)
     _browser = context
     return _page
 
@@ -134,6 +145,55 @@ def _clean_domain(value: str) -> str:
     return value
 
 
+# ── Polite-access helpers (rate limiting + robots.txt) ─────────────────────────
+
+# Browser-like UA used ONLY when stealth mode is explicitly enabled.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+_LAST_NAV_AT = 0.0
+_ROBOTS_CACHE: dict[str, robotparser.RobotFileParser | None] = {}
+
+
+async def _rate_limit() -> None:
+    """Sleep so consecutive navigations are at least settings.request_delay apart."""
+    global _LAST_NAV_AT
+    delay = max(0.0, settings.request_delay)
+    if delay:
+        wait = delay - (time.monotonic() - _LAST_NAV_AT)
+        if wait > 0:
+            await asyncio.sleep(wait)
+    _LAST_NAV_AT = time.monotonic()
+
+
+async def _robots_allows(url: str) -> bool:
+    """Return True if robots.txt permits fetching url (fail-open). No-op if disabled."""
+    if not settings.respect_robots:
+        return True
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return True
+        host = f"{parsed.scheme}://{parsed.netloc}"
+        if host not in _ROBOTS_CACHE:
+            rp = None
+            try:
+                resp = await async_http_get(f"{host}/robots.txt", timeout=settings.http_timeout)
+                if resp is not None and resp.status_code == 200 and resp.text.strip():
+                    rp = robotparser.RobotFileParser()
+                    rp.parse(resp.text.splitlines())
+            except Exception:  # noqa: BLE001
+                rp = None
+            _ROBOTS_CACHE[host] = rp
+        rp = _ROBOTS_CACHE[host]
+        return True if rp is None else rp.can_fetch(settings.user_agent, url)
+    except Exception:  # noqa: BLE001
+        return True  # never let robots handling break a run
+
+
 # ── Browser tools (serialised via lock) ───────────────────────────────────────
 
 @tool
@@ -141,6 +201,13 @@ async def navigate(url: str) -> str:
     """Navigate to any URL. Use full URLs with https://"""
     async with _get_browser_lock():
         try:
+            if not await _robots_allows(url):
+                return (
+                    f"Blocked by robots.txt: {url}. This site disallows automated "
+                    "access to that path. Set OSINT_RESPECT_ROBOTS=false to override "
+                    "(only for sources you are authorized to access)."
+                )
+            await _rate_limit()
             page = await ensure_browser()
             await page.goto(url, wait_until="domcontentloaded", timeout=settings.nav_timeout_ms)
             return f"Navigated to: {page.url} | Title: {await page.title()}"
@@ -199,6 +266,7 @@ async def search_web(query: str) -> str:
     """Search DuckDuckGo for any query. Returns titles, URLs and snippets."""
     async with _get_browser_lock():
         try:
+            await _rate_limit()
             page = await ensure_browser()
             search_url = f"https://duckduckgo.com/?q={url_quote(query)}&ia=web"
             await page.goto(search_url, wait_until="domcontentloaded", timeout=settings.search_timeout_ms)

@@ -39,7 +39,7 @@ osint-agent admin@example.com --type email --open
 
 - **23 passive tools** — WHOIS, DNS (5 record types in parallel), crt.sh, ip-api, Shodan InternetDB, BGPView ASN, Gravatar, Wayback Machine, GitHub recon, username enumeration across 10 platforms, subdomain bruteforce (40 words in parallel), TLS cert inspection, port/CVE passive lookup, email validation, page metadata, HTTP headers, robots.txt, contact extraction
 - **AI agent loop** — LangGraph ReAct: the LLM decides which tools to call and stops when it has enough information
-- **Browser automation** — Playwright (Chromium) for DuckDuckGo search and page navigation, with stealth hardening
+- **Browser automation** — Playwright (Chromium) for DuckDuckGo search and page navigation; polite by default (honors robots.txt, rate-limited, honest User-Agent), with optional opt-in stealth
 - **Modular** — pick only the tool groups you need with `--modules dns,whois,ip`
 - **Rich terminal output** — colored panels, live tool call display, progress
 - **Bilingual** — reports and interface in English or Spanish (`--lang es`)
@@ -96,6 +96,10 @@ Optional overrides (all have sensible defaults):
 | `OSINT_HTTP_TIMEOUT` | `10` | HTTP timeout in seconds |
 | `OSINT_HTTP_RETRIES` | `3` | Retries on 429/5xx |
 | `OSINT_LOG_LEVEL` | `INFO` | Logging verbosity |
+| `OSINT_RESPECT_ROBOTS` | `true` | Honor robots.txt when navigating |
+| `OSINT_REQUEST_DELAY` | `1.0` | Min seconds between page navigations |
+| `OSINT_USER_AGENT` | `osint-agent/1.0 …` | User-Agent sent to sites |
+| `OSINT_STEALTH` | `false` | Anti-bot fingerprint spoofing (authorized use only) |
 
 ---
 
@@ -115,11 +119,17 @@ Options:
   --output DIR        Report output directory (default: ./reports)
   --quiet, -q         Print only the report path when done
   --open              Open the report after the investigation
-  --delay SECONDS     Delay between tool calls (default: 0)
+  --delay SECONDS     Delay between agent tool calls (default: 0)
   --json              Machine-readable JSON output
   --headless          Headless browser (no visible window)
   --model MODEL       Override the DeepSeek model
   --max-steps N       Override max agent steps
+
+Responsible-use controls (override .env defaults for this run):
+  --stealth           Enable anti-bot fingerprint spoofing (authorized targets only)
+  --ignore-robots     Ignore robots.txt (default: respect it)
+  --request-delay S   Min seconds between page navigations (default: 1.0)
+  --user-agent UA     Override the User-Agent sent to sites
 ```
 
 **Examples:**
@@ -129,4 +139,35 @@ osint-agent example.com
 osint-agent example.com --lang es --open
 osint-agent 8.8.8.8 --modules ip,dns --quiet
 osint-agent "John Smith CEO Acme" --type person --lang es
-osint-agent admin@c
+osint-agent admin@company.com --type email
+```
+
+---
+
+## Responsible use
+
+This tool is provided for **lawful, authorized use only** — security research,
+defensive assessments of assets you own or have explicit written permission to
+analyze, education, and journalism. It collects only **publicly available**
+information from public sources and performs **no active scanning, exploitation,
+or intrusion**.
+
+By design, the default behavior is polite:
+
+- **Respects `robots.txt`** (`OSINT_RESPECT_ROBOTS=true` by default).
+- **Rate-limited** between requests (`OSINT_REQUEST_DELAY`, default 1s).
+- **Identifies itself honestly** with a descriptive User-Agent.
+- **Stealth / anti-bot fingerprinting is OFF by default** (`OSINT_STEALTH=false`).
+  Enabling it may violate the Terms of Service of the sites you access; only do
+  so for sources you are authorized to test.
+
+You are solely responsible for ensuring your use complies with all applicable
+laws (including data-protection rules such as the GDPR) and with the terms of
+the services you query. The author accepts no liability for misuse or for any
+damage arising from use of this software.
+
+---
+
+## License
+
+Released under the **GNU General Public License v2.0** (GPLv2). See [LICENSE](LICENSE).

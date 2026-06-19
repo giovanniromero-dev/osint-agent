@@ -56,14 +56,22 @@ class Settings:
     nav_timeout_ms: int = 30000
     search_timeout_ms: int = 20000
 
+    # Responsible-use controls
+    # Stealth (anti-bot fingerprint spoofing) is OFF by default. Only enable it
+    # for sources you are authorized to test; it can violate sites' Terms of
+    # Service. When off, the agent identifies itself honestly and behaves politely.
+    stealth: bool = False
+    respect_robots: bool = True
+    request_delay: float = 1.0  # seconds to wait between page navigations
+
     # HTTP (network helpers)
     http_timeout: int = 10
     http_retries: int = 3
     http_backoff: float = 0.6
+    # Honest, identifiable User-Agent used by default. Stealth mode swaps in a
+    # browser-like UA (see tools.py).
     user_agent: str = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "osint-agent/1.0 (+https://github.com/giovanniromero-dev/osint-agent)"
     )
 
     # Logging
@@ -85,9 +93,16 @@ class Settings:
             headless=_get_bool("OSINT_HEADLESS", False),
             nav_timeout_ms=_get_int("OSINT_NAV_TIMEOUT_MS", 30000),
             search_timeout_ms=_get_int("OSINT_SEARCH_TIMEOUT_MS", 20000),
+            stealth=_get_bool("OSINT_STEALTH", False),
+            respect_robots=_get_bool("OSINT_RESPECT_ROBOTS", True),
+            request_delay=float(os.getenv("OSINT_REQUEST_DELAY", "1.0") or 1.0),
             http_timeout=_get_int("OSINT_HTTP_TIMEOUT", 10),
             http_retries=_get_int("OSINT_HTTP_RETRIES", 3),
             http_backoff=float(os.getenv("OSINT_HTTP_BACKOFF", "0.6") or 0.6),
+            user_agent=os.getenv(
+                "OSINT_USER_AGENT",
+                "osint-agent/1.0 (+https://github.com/giovanniromero-dev/osint-agent)",
+            ),
             log_level=os.getenv("OSINT_LOG_LEVEL", "INFO").upper(),
         )
 
