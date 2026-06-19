@@ -125,12 +125,32 @@ Options:
   --model MODEL       Override the DeepSeek model
   --max-steps N       Override max agent steps
 
-Responsible-use controls (override .env defaults for this run):
+Responsible-use controls (override .env defaults / the chosen profile):
+  --profile NAME      Scan profile: polite | balanced | aggressive (default: polite)
   --stealth           Enable anti-bot fingerprint spoofing (authorized targets only)
   --ignore-robots     Ignore robots.txt (default: respect it)
   --request-delay S   Min seconds between page navigations (default: 1.0)
   --user-agent UA     Override the User-Agent sent to sites
 ```
+
+### Scan profiles
+
+A profile is a preset bundle of the controls above. Pick one with `--profile`
+(or via the interactive menu). Individual flags always override the profile.
+
+| Profile | Stealth | robots.txt | Delay | Max steps |
+|---|---|---|---|---|
+| `polite` *(default)* | off | respected | 1.0s | 50 |
+| `balanced` | off | respected | 0.5s | 75 |
+| `aggressive` | on | ignored | 0s | 100 |
+
+```bash
+osint-agent example.com --profile aggressive            # authorized targets only
+osint-agent example.com --profile aggressive --request-delay 2   # preset + tweak
+```
+
+> The `aggressive` profile enables stealth and ignores robots.txt. Use it only on
+> systems you own or are explicitly authorized to assess.
 
 **Examples:**
 

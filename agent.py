@@ -396,6 +396,14 @@ T = {
     "es": {
         "ask_lang": "Language:\n  [[#00ff00]1[/#00ff00]] Spanish\n  [[#00ff00]2[/#00ff00]] English",
         "ask_lang_prompt": "Select [1/2]: ",
+        "ask_profile": (
+            "Tipo de escaneo:\n"
+            "  [[#00ff00]1[/#00ff00]] Educado (por defecto: respeta robots.txt, ritmo lento)\n"
+            "  [[#00ff00]2[/#00ff00]] Equilibrado (más rápido, sigue respetando robots.txt)\n"
+            "  [[#00ff00]3[/#00ff00]] Agresivo (stealth, ignora robots.txt — solo objetivos autorizados)"
+        ),
+        "ask_profile_prompt": "Selecciona [1/2/3]: ",
+        "profile_set": "Perfil: ",
         "invalid": "Opción no válida.",
         "title": "  AGENTE OSINT - Reconocimiento Pasivo",
         "menu1": "[[#00ff00]1[/#00ff00]] Nueva investigación",
@@ -420,6 +428,14 @@ T = {
     "en": {
         "ask_lang": "Language:\n  [[#00ff00]1[/#00ff00]] Spanish\n  [[#00ff00]2[/#00ff00]] English",
         "ask_lang_prompt": "Select [1/2]: ",
+        "ask_profile": (
+            "Scan type:\n"
+            "  [[#00ff00]1[/#00ff00]] Polite (default: respects robots.txt, slow pace)\n"
+            "  [[#00ff00]2[/#00ff00]] Balanced (faster, still respects robots.txt)\n"
+            "  [[#00ff00]3[/#00ff00]] Aggressive (stealth, ignores robots.txt — authorized targets only)"
+        ),
+        "ask_profile_prompt": "Select [1/2/3]: ",
+        "profile_set": "Profile: ",
         "invalid": "Invalid option.",
         "title": "  OSINT AGENT - Passive Reconnaissance",
         "menu1": "[[#00ff00]1[/#00ff00]] New investigation",
@@ -454,6 +470,16 @@ def ask_language() -> str:
         if choice in ("2", "en", "english", "ingles", "inglés"):
             return "en"
         console.print(f"[warn]{T['en']['invalid']}[/warn]")
+
+
+def ask_profile(lang: str) -> None:
+    """Ask the user which scan profile to use and apply it to settings."""
+    t = T[lang]
+    console.print("\n" + t["ask_profile"])
+    choice = input(t["ask_profile_prompt"]).strip().lower()
+    name = {"1": "polite", "2": "balanced", "3": "aggressive"}.get(choice, "polite")
+    _apply_profile(name)
+    console.print(f"[muted]{t['profile_set']}[/muted][#00ff00]{name}[/#00ff00]")
 
 
 def list_reports() -> list:
@@ -582,6 +608,7 @@ async def vuln_analysis(lang: str = "en") -> None:
 async def interactive() -> None:
     console.print(BANNER, style="bold white")
     lang = ask_language()
+    ask_profile(lang)
     t = T[lang]
     while True:
         console.print()
@@ -660,7 +687,13 @@ complying with all applicable laws (e.g. GDPR) and each service's terms.
     parser.add_argument("--delay", type=float, default=0.0, metavar="SECONDS",
                         help="Delay in seconds between agent tool calls (default: 0).")
 
-    # Responsible-use controls (override .env defaults for this run).
+    # Scan profile: a preset bundle of the controls below.
+    parser.add_argument("--profile", choices=["polite", "balanced", "aggressive"],
+                        default=None,
+                        help="Scan profile preset (default: polite). "
+                             "Individual flags below override the chosen profile.")
+
+    # Responsible-use controls (override .env defaults / the chosen profile).
     parser.add_argument("--stealth", action="store_true", default=None,
                         help="Enable anti-bot fingerprint spoofing. Use ONLY on sources "
                              "you are authorized to test; may breach their Terms of Service.")
@@ -675,7 +708,23 @@ complying with all applicable laws (e.g. GDPR) and each service's terms.
     return parser.parse_args(argv)
 
 
+PROFILES = {
+    "polite":     dict(stealth=False, respect_robots=True,  request_delay=1.0, max_steps=50),
+    "balanced":   dict(stealth=False, respect_robots=True,  request_delay=0.5, max_steps=75),
+    "aggressive": dict(stealth=True,  respect_robots=False, request_delay=0.0, max_steps=100),
+}
+
+
+def _apply_profile(name: str) -> None:
+    """Apply a named scan profile to the global settings."""
+    for key, value in PROFILES[name].items():
+        object.__setattr__(settings, key, value)
+
+
 def apply_overrides(args: argparse.Namespace) -> None:
+    # Profile first; explicit individual flags below override it.
+    if getattr(args, "profile", None):
+        _apply_profile(args.profile)
     if args.headless:
         object.__setattr__(settings, "headless", True)
     if args.model:
