@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osint-agent"
+version = "1.0.0"
+description = "Passive OSINT reconnaissance agent powered by LangGraph and DeepSeek"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["osint", "reconnaissance", "security", "langgraph", "ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+dependencies = [
+    "langchain-openai",
+    "langchain-core",
+    "langgraph",
+    "playwright",
+    "python-dotenv",
+    "requests",
+    "python-whois",
+    "rich",
+]
+
+[project.scripts]
+osint-agent = "agent:cli_main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/osint-agent"
+Issues   = "https://github.com/yourusername/osint-agent/issues"
+
+[tool.setuptools]
+py-modules = ["agent", "tools", "osint_extra", "config", "reporting", "http_client"]

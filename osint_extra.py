@@ -3,9 +3,12 @@ Additional OSINT tools - all use public sources and require no API key.
 
 Sources: BGPView (ASN), Shodan InternetDB (passive ports/CVEs),
 Gravatar, Google DoH (subdomain checks), live TLS socket, page metadata.
+
+All tools are async — network I/O runs in executor or with asyncio.gather.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import socket
@@ -15,7 +18,7 @@ from urllib.parse import urlparse
 from langchain_core.tools import tool
 
 from config import get_logger, settings
-from http_client import get_json, http_get
+from http_client import async_get_json, async_http_get
 
 log = get_logger("osint.extra")
 
@@ -32,17 +35,22 @@ def _clean_domain(value: str) -> str:
 
 
 @tool
-def ssl_cert_info(domain: str) -> str:
+async def ssl_cert_info(domain: str) -> str:
     """
     Inspect the live TLS certificate of a domain (port 443).
     Returns issuer, subject, validity dates and Subject Alternative Names.
     """
     domain = _clean_domain(domain)
     try:
-        ctx = ssl.create_default_context()
-        with socket.create_connection((domain, 443), timeout=settings.http_timeout) as sock:
-            with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                cert = ssock.getpeercert()
+        loop = asyncio.get_running_loop()
+
+        def _get_cert():
+            ctx = ssl.create_default_context()
+            with socket.create_connection((domain, 443), timeout=settings.http_timeout) as sock:
+                with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                    return ssock.getpeercert()
+
+        cert = await loop.run_in_executor(None, _get_cert)
     except Exception as e:  # noqa: BLE001
         return f"ssl_cert_info error for {domain}: {e}"
 
@@ -65,7 +73,7 @@ def ssl_cert_info(domain: str) -> str:
 
 
 @tool
-def asn_lookup(asn: str) -> str:
+async def asn_lookup(asn: str) -> str:
     """
     Look up an Autonomous System (ASN) via BGPView - org name and announced
     IP prefixes. Accepts 'AS15169' or '15169'.
@@ -73,7 +81,12 @@ def asn_lookup(asn: str) -> str:
     num = re.sub(r"[^0-9]", "", asn)
     if not num:
         return f"Invalid ASN: {asn}"
-    data = get_json(f"https://api.bgpview.io/asn/{num}", timeout=settings.http_timeout)
+
+    data, prefixes = await asyncio.gather(
+        async_get_json(f"https://api.bgpview.io/asn/{num}", timeout=settings.http_timeout),
+        async_get_json(f"https://api.bgpview.io/asn/{num}/prefixes", timeout=settings.http_timeout),
+    )
+
     if not data or data.get("status") != "ok":
         return f"No data for AS{num}."
     d = data.get("data", {})
@@ -84,9 +97,8 @@ def asn_lookup(asn: str) -> str:
         f"country: {d.get('country_code')}",
         f"website: {d.get('website')}",
     ]
-    lines = [l for l in lines if not l.endswith(": None")]
+    lines = [ln for ln in lines if not ln.endswith(": None")]
 
-    prefixes = get_json(f"https://api.bgpview.io/asn/{num}/prefixes", timeout=settings.http_timeout)
     if prefixes and prefixes.get("status") == "ok":
         v4 = prefixes.get("data", {}).get("ipv4_prefixes", [])
         if v4:
@@ -97,13 +109,13 @@ def asn_lookup(asn: str) -> str:
 
 
 @tool
-def port_scan_passive(ip: str) -> str:
+async def port_scan_passive(ip: str) -> str:
     """
     Passive port / service / CVE lookup via Shodan InternetDB (free, no key).
     Does NOT scan the target - returns data Shodan already collected.
     """
     ip = ip.strip()
-    data = get_json(f"https://internetdb.shodan.io/{ip}", timeout=settings.http_timeout)
+    data = await async_get_json(f"https://internetdb.shodan.io/{ip}", timeout=settings.http_timeout)
     if not data:
         return f"No InternetDB data for {ip} (or host not indexed)."
     if data.get("detail"):
@@ -123,16 +135,16 @@ def port_scan_passive(ip: str) -> str:
 
 
 @tool
-def email_validate(email: str) -> str:
+async def email_validate(email: str) -> str:
     """
-    Validate an email: check syntax and whether the domain has MX records
-    (i.e. can receive mail). Does NOT send any email or verify the mailbox.
+    Validate an email: check syntax and whether the domain has MX records.
+    Does NOT send any email or verify the mailbox exists.
     """
     email = email.strip()
     if not re.fullmatch(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", email):
         return f"Invalid email syntax: {email}"
     domain = email.rsplit("@", 1)[1].lower()
-    data = get_json(
+    data = await async_get_json(
         "https://dns.google/resolve",
         params={"name": domain, "type": "MX"},
         timeout=settings.http_timeout,
@@ -148,7 +160,7 @@ def email_validate(email: str) -> str:
 
 
 @tool
-def gravatar_lookup(email: str) -> str:
+async def gravatar_lookup(email: str) -> str:
     """
     Check whether an email has a public Gravatar profile (avatar / identity).
     Uses the MD5 hash of the email as Gravatar's public API expects.
@@ -157,19 +169,20 @@ def gravatar_lookup(email: str) -> str:
     if "@" not in email:
         return f"Invalid email: {email}"
     h = hashlib.md5(email.encode("utf-8")).hexdigest()
-    avatar = f"https://www.gravatar.com/avatar/{h}?d=404"
-    profile = f"https://www.gravatar.com/{h}.json"
-    try:
-        r = http_get(avatar, timeout=settings.http_timeout)
-        has_avatar = r.status_code == 200
-    except Exception:  # noqa: BLE001
-        has_avatar = False
+    avatar_url = f"https://www.gravatar.com/avatar/{h}?d=404"
+    profile_url = f"https://www.gravatar.com/{h}.json"
+
+    avatar_resp, profile_data = await asyncio.gather(
+        async_http_get(avatar_url, timeout=settings.http_timeout),
+        async_get_json(profile_url, timeout=settings.http_timeout),
+    )
+
+    has_avatar = avatar_resp.status_code == 200
     lines = [f"email: {email}", f"hash: {h}", f"has_avatar: {has_avatar}"]
     if has_avatar:
         lines.append(f"avatar_url: https://www.gravatar.com/avatar/{h}")
-    data = get_json(profile, timeout=settings.http_timeout)
-    if isinstance(data, dict) and data.get("entry"):
-        entry = data["entry"][0]
+    if isinstance(profile_data, dict) and profile_data.get("entry"):
+        entry = profile_data["entry"][0]
         if entry.get("displayName"):
             lines.append(f"display_name: {entry['displayName']}")
         if entry.get("aboutMe"):
@@ -182,7 +195,6 @@ def gravatar_lookup(email: str) -> str:
     return "Gravatar lookup:\n" + "\n".join(lines)
 
 
-# Common subdomain labels for lightweight discovery via DNS resolution.
 _SUBDOMAIN_WORDS = [
     "www", "mail", "smtp", "imap", "pop", "webmail", "ns1", "ns2", "dns",
     "vpn", "remote", "portal", "admin", "dev", "staging", "test", "api",
@@ -193,16 +205,16 @@ _SUBDOMAIN_WORDS = [
 
 
 @tool
-def subdomain_bruteforce(domain: str) -> str:
+async def subdomain_bruteforce(domain: str) -> str:
     """
-    Discover live subdomains by resolving a list of common labels via DNS
-    (Google DoH). Lightweight - only checks well-known names, no wordlist file.
+    Discover live subdomains by resolving common labels via DNS (Google DoH).
+    All labels are checked in parallel for speed.
     """
     domain = _clean_domain(domain)
-    found = []
-    for word in _SUBDOMAIN_WORDS:
+
+    async def _check(word: str) -> str | None:
         host = f"{word}.{domain}"
-        data = get_json(
+        data = await async_get_json(
             "https://dns.google/resolve",
             params={"name": host, "type": "A"},
             timeout=6,
@@ -210,14 +222,18 @@ def subdomain_bruteforce(domain: str) -> str:
         if data and data.get("Answer"):
             ips = [a["data"] for a in data["Answer"] if a.get("type") == 1]
             if ips:
-                found.append(f"  {host} -> {', '.join(ips)}")
+                return f"  {host} -> {', '.join(ips)}"
+        return None
+
+    results = await asyncio.gather(*[_check(w) for w in _SUBDOMAIN_WORDS])
+    found = [r for r in results if r]
     if not found:
         return f"No common subdomains resolved for {domain}."
     return f"Resolved subdomains for {domain} ({len(found)}):\n" + "\n".join(found)
 
 
 @tool
-def extract_metadata(url: str) -> str:
+async def extract_metadata(url: str) -> str:
     """
     Fetch a page and extract metadata: <title>, meta description, Open Graph
     tags, generator, author and favicon. Static fetch (no JS execution).
@@ -225,7 +241,7 @@ def extract_metadata(url: str) -> str:
     if "://" not in url:
         url = "https://" + url
     try:
-        resp = http_get(url, timeout=settings.http_timeout, allow_redirects=True)
+        resp = await async_http_get(url, timeout=settings.http_timeout, allow_redirects=True)
         html = resp.text
     except Exception as e:  # noqa: BLE001
         return f"extract_metadata error for {url}: {e}"
@@ -261,12 +277,12 @@ def extract_metadata(url: str) -> str:
 
 
 @tool
-def wayback_snapshots(url: str) -> str:
+async def wayback_snapshots(url: str) -> str:
     """
     List multiple historical Wayback Machine snapshots for a URL (first and
     most recent captures, plus a yearly sample) using the CDX API.
     """
-    data = get_json(
+    data = await async_get_json(
         "https://web.archive.org/cdx/search/cdx",
         params={
             "url": url,
@@ -279,21 +295,20 @@ def wayback_snapshots(url: str) -> str:
     )
     if not data or len(data) <= 1:
         return f"No Wayback snapshots found for {url}."
-    rows = data[1:]  # first row is header
-    total = len(rows)
-    sample = rows[:1] + rows[-1:] if total > 1 else rows
-    # yearly sample
-    seen_years = set()
-    yearly = []
+    rows = data[1:]
+    seen_years: set[str] = set()
+    yearly: list[tuple[str, str]] = []
     for ts, code, orig in rows:
         year = ts[:4]
         if year not in seen_years:
             seen_years.add(year)
             yearly.append((ts, code))
-    lines = [f"total snapshots (approx, yearly-collapsed): {total}",
-             f"first: {rows[0][0]}  last: {rows[-1][0]}",
-             "years captured: " + ", ".join(sorted(seen_years))]
-    lines.append("sample snapshot URLs:")
+    lines = [
+        f"total snapshots (approx, yearly-collapsed): {len(rows)}",
+        f"first: {rows[0][0]}  last: {rows[-1][0]}",
+        "years captured: " + ", ".join(sorted(seen_years)),
+        "sample snapshot URLs:",
+    ]
     for ts, code in yearly[:12]:
         lines.append(f"  https://web.archive.org/web/{ts}/{url}  (HTTP {code})")
     return f"Wayback snapshots for {url}:\n" + "\n".join(lines)

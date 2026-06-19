@@ -7,7 +7,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import platform
+import re
+import subprocess
 import sys
+import time
+from pathlib import Path
 from typing import Annotated
 
 from typing_extensions import TypedDict
@@ -18,11 +24,78 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.theme import Theme
+from rich.text import Text
+
 from config import get_logger, settings
 from tools import OSINT_TOOLS, close_browser
 import reporting
 
 log = get_logger("osint.agent")
+
+VERSION = "1.0.0"
+
+theme = Theme({
+    "banner":      "bold magenta",
+    "header":      "bold cyan",
+    "tool.name":   "cyan bold",
+    "tool.args":   "dim white",
+    "tool.output": "dim white",
+    "agent":       "white",
+    "info":        "blue",
+    "success":     "green bold",
+    "warn":        "yellow",
+    "error":       "red bold",
+    "muted":       "dim",
+})
+console = Console(theme=theme)
+
+BANNER = r"""
+  ██████╗ ███████╗██╗███╗   ██╗████████╗ █████╗  ██████╗ ███████╗███╗   ██╗████████╗
+ ██╔═══██╗██╔════╝██║████╗  ██║╚══██╔══╝██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
+ ██║   ██║███████╗██║██╔██╗ ██║   ██║   ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║
+ ██║   ██║╚════██║██║██║╚██╗██║   ██║   ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║
+ ╚██████╔╝███████║██║██║ ╚████║   ██║   ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║
+  ╚═════╝ ╚══════╝╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
+
+                  [ Passive Reconnaissance Framework ]
+         LangGraph · DeepSeek · Public Sources Only · No Auth Required
+"""
+
+# ── Module groups for --modules flag ──────────────────────────────────────────
+
+MODULE_GROUPS: dict[str, set[str]] = {
+    "dns":     {"dns_lookup", "reverse_dns", "cert_lookup", "subdomain_bruteforce", "ssl_cert_info"},
+    "whois":   {"whois_lookup"},
+    "ip":      {"ip_lookup", "asn_lookup", "port_scan_passive", "reverse_dns"},
+    "web":     {"navigate", "get_text", "get_links", "screenshot", "search_web",
+                "http_headers", "robots_sitemap", "extract_metadata"},
+    "email":   {"email_validate", "gravatar_lookup", "extract_contacts"},
+    "social":  {"github_recon", "username_enum"},
+    "archive": {"wayback_lookup", "wayback_snapshots"},
+}
+_ALWAYS_ACTIVE = {"save_report", "finish"}
+
+
+def get_active_tools(modules_str: str | None = None) -> list:
+    """Return OSINT_TOOLS filtered by --modules. Always includes save_report + finish."""
+    if not modules_str:
+        return OSINT_TOOLS
+    requested = {m.strip().lower() for m in modules_str.split(",")}
+    allowed = _ALWAYS_ACTIVE.copy()
+    for m in requested:
+        if m in MODULE_GROUPS:
+            allowed.update(MODULE_GROUPS[m])
+        else:
+            console.print(f"[warn]⚠  Unknown module '{m}'. Valid: {', '.join(MODULE_GROUPS)}[/warn]")
+    active = [t for t in OSINT_TOOLS if t.name in allowed]
+    console.print(
+        f"[muted]Modules: {', '.join(sorted(requested))} "
+        f"→ {len(active)} tools active[/muted]\n"
+    )
+    return active
 
 
 # ── State ──────────────────────────────────────────────────────────────────────
@@ -34,25 +107,31 @@ class AgentState(TypedDict):
 
 # ── LLM ────────────────────────────────────────────────────────────────────────
 
-def get_llm():
+def get_llm(tools: list | None = None):
+    tools = tools if tools is not None else OSINT_TOOLS
     return ChatOpenAI(
         model=settings.deepseek_model,
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
         temperature=settings.temperature,
-    ).bind_tools(OSINT_TOOLS)
+    ).bind_tools(tools)
 
 
 # ── Nodes ──────────────────────────────────────────────────────────────────────
 
-async def agent_node(state: AgentState):
-    response = await get_llm().ainvoke(state["messages"])
-    return {"messages": [response], "steps": state.get("steps", 0)}
+def _make_agent_node(tools: list):
+    llm = get_llm(tools)  # created once per graph, not on every step
+    async def agent_node(state: AgentState):
+        response = await llm.ainvoke(state["messages"])
+        return {"messages": [response], "steps": state.get("steps", 0)}
+    return agent_node
 
 
-async def tools_node(state: AgentState):
-    result = await ToolNode(OSINT_TOOLS).ainvoke(state)
-    return {**result, "steps": state.get("steps", 0) + 1}
+def _make_tools_node(tools: list):
+    async def tools_node(state: AgentState):
+        result = await ToolNode(tools).ainvoke(state)
+        return {**result, "steps": state.get("steps", 0) + 1}
+    return tools_node
 
 
 # ── Routing ────────────────────────────────────────────────────────────────────
@@ -75,10 +154,11 @@ def route_after_tools(state: AgentState):
 
 # ── Graph ──────────────────────────────────────────────────────────────────────
 
-def build_graph():
+def build_graph(tools: list | None = None):
+    tools = tools if tools is not None else OSINT_TOOLS
     graph = StateGraph(AgentState)
-    graph.add_node("agent", agent_node)
-    graph.add_node("tools", tools_node)
+    graph.add_node("agent", _make_agent_node(tools))
+    graph.add_node("tools", _make_tools_node(tools))
     graph.set_entry_point("agent")
     graph.add_conditional_edges("agent", route_agent)
     graph.add_conditional_edges("tools", route_after_tools)
@@ -158,7 +238,6 @@ RULES:
 - Document every source URL
 - finish() summary: one paragraph of key findings"""
 
-
 LANGUAGE_NAMES = {"es": "Spanish", "en": "English"}
 
 
@@ -171,21 +250,64 @@ def language_directive(lang: str) -> str:
     )
 
 
+def type_directive(target_type: str) -> str:
+    return f"\n\nTARGET TYPE HINT: The user has specified this target is a {target_type.upper()}. Start your investigation accordingly."
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _open_file(path: Path) -> None:
+    """Open a file with the default OS application."""
+    try:
+        if platform.system() == "Windows":
+            os.startfile(path)  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", str(path)], check=False)
+        else:
+            subprocess.run(["xdg-open", str(path)], check=False)
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[warn]Could not open report: {exc}[/warn]")
+
+
+def _latest_report() -> Path | None:
+    if not settings.reports_dir.exists():
+        return None
+    reports = sorted(settings.reports_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return reports[0] if reports else None
+
+
 # ── Runner ──────────────────────────────────────────────────────────────────────
 
-async def run_agent(task: str, *, as_json: bool = False, language: str = "en") -> str:
+async def run_agent(
+    task: str,
+    *,
+    as_json: bool = False,
+    language: str = "en",
+    quiet: bool = False,
+    delay: float = 0.0,
+    open_report: bool = False,
+    target_type: str | None = None,
+    modules: str | None = None,
+) -> str:
     """Run an investigation and return the final summary."""
-    graph = build_graph()
-    system_prompt = SYSTEM_PROMPT + language_directive(language)
+    active_tools = get_active_tools(modules)
+    graph = build_graph(active_tools)
 
-    if not as_json:
-        print(f"\n{'='*55}")
-        print(f"[osint] Target: {task}")
-        print(f"{'='*55}\n")
+    system_prompt = SYSTEM_PROMPT + language_directive(language)
+    if target_type:
+        system_prompt += type_directive(target_type)
+
+    if not as_json and not quiet:
+        console.print(Panel(
+            f"[header]Target:[/header] {task}",
+            border_style="cyan",
+            expand=False,
+        ))
 
     final_message = ""
     last_ai_message = ""
     tools_used: list[str] = []
+    report_path: str | None = None
 
     async for event in graph.astream_events(
         {
@@ -203,24 +325,36 @@ async def run_agent(task: str, *, as_json: bool = False, language: str = "en") -
         if kind == "on_tool_start":
             tool_name = event["name"]
             tools_used.append(tool_name)
-            if not as_json:
+            if not as_json and not quiet:
                 tool_input = event.get("data", {}).get("input", {})
-                print(f"[tool] {tool_name}({tool_input})")
+                args_str = json.dumps(tool_input, ensure_ascii=False)[:120]
+                console.print(f"  [tool.name]▶ {tool_name}[/tool.name] [tool.args]{args_str}[/tool.args]")
 
         elif kind == "on_tool_end":
+            if delay > 0:
+                await asyncio.sleep(delay)
             output = event.get("data", {}).get("output", "")
             if hasattr(output, "content"):
                 output = output.content
             output_str = str(output)
-            if not as_json:
-                print(f"  → {output_str[:200]}")
+
+            # capture report path from "Report saved: /path/to/file.md"
+            if event["name"] == "save_report":
+                m = re.search(r"Report saved:\s*(.+\.md)", output_str)
+                if m:
+                    report_path = m.group(1).strip()
+
+            if not as_json and not quiet:
+                preview = output_str[:200].replace("\n", " ")
+                console.print(f"    [tool.output]↳ {preview}[/tool.output]")
+
             if "TASK_COMPLETE:" in output_str:
                 final_message = output_str.replace("TASK_COMPLETE: ", "")
 
         elif kind == "on_chat_model_stream":
             chunk = event.get("data", {}).get("chunk")
-            if chunk and hasattr(chunk, "content") and chunk.content and not as_json:
-                print(chunk.content, end="", flush=True)
+            if chunk and hasattr(chunk, "content") and chunk.content and not as_json and not quiet:
+                console.print(chunk.content, end="", style="agent")
 
         elif kind == "on_chat_model_end":
             output = event.get("data", {}).get("output")
@@ -235,53 +369,56 @@ async def run_agent(task: str, *, as_json: bool = False, language: str = "en") -
             "target": task,
             "summary": final_message,
             "tools_used": tools_used,
+            "report": report_path,
         }, ensure_ascii=False, indent=2))
+    elif quiet:
+        if report_path:
+            print(report_path)
     else:
-        print(f"\n\n{'='*55}")
-        print(f"[osint] Done:\n\n{final_message}")
-        print(f"{'='*55}\n")
+        console.print()
+        console.print(Panel(final_message, title="[success]Done[/success]", border_style="green"))
+        if report_path:
+            console.print(f"[muted]Report saved:[/muted] [success]{report_path}[/success]")
+
+    if open_report and report_path:
+        _open_file(Path(report_path))
+    elif open_report:
+        r = _latest_report()
+        if r:
+            _open_file(r)
 
     return final_message
 
 
-async def run_batch(path: str, *, as_json: bool = False, language: str = "en") -> None:
-    with open(path, "r", encoding="utf-8") as f:
-        targets = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-    log.info("Batch mode: %d targets from %s", len(targets), path)
-    for target in targets:
-        await run_agent(target, as_json=as_json, language=language)
-
-
 # ── Interactive menu (i18n) ──────────────────────────────────────────────────────
 
-# UI strings per language. The chosen language drives the whole interface.
 T = {
     "es": {
-        "ask_lang": "Idioma / Language:\n  [1] Espanol\n  [2] English",
-        "ask_lang_prompt": "Selecciona [1/2]: ",
-        "invalid": "Opcion no valida.",
+        "ask_lang": "Language:\n  [1] Spanish\n  [2] English",
+        "ask_lang_prompt": "Select [1/2]: ",
+        "invalid": "Opción no válida.",
         "title": "  AGENTE OSINT - Reconocimiento Pasivo",
-        "menu1": "[1] Nueva investigacion",
-        "menu2": "[2] Preguntar sobre un reporte",
-        "menu3": "[3] Analisis de vulnerabilidades de un reporte",
+        "menu1": "[1] Nueva investigación",
+        "menu2": "[2] Consultar un reporte existente",
+        "menu3": "[3] Análisis de vulnerabilidades",
         "menuq": "[q] Salir",
         "select": "Selecciona: ",
         "examples": "\nEjemplos:",
         "target": "\nObjetivo: ",
-        "goodbye": "[osint] Hasta luego.",
+        "goodbye": "Hasta luego.",
         "no_reports": "\nNo hay reportes en reports/.",
         "available": "\nReportes disponibles:",
-        "choose": "\nElige numero: ",
-        "bad_sel": "Seleccion no valida.",
+        "choose": "\nElige número: ",
+        "bad_sel": "Selección no válida.",
         "report": "\nReporte: ",
-        "ask_hint": "Escribe tu pregunta (o 'q' para volver).",
+        "ask_hint": "Escribe tu pregunta ('q' para volver).",
         "question": "\nPregunta: ",
         "analyzing": "\nAnalizando: ",
-        "saved": "[guardado] ",
-        "error": "[error] ",
+        "saved": "Guardado: ",
+        "error": "Error: ",
     },
     "en": {
-        "ask_lang": "Idioma / Language:\n  [1] Espanol\n  [2] English",
+        "ask_lang": "Language:\n  [1] Spanish\n  [2] English",
         "ask_lang_prompt": "Select [1/2]: ",
         "invalid": "Invalid option.",
         "title": "  OSINT AGENT - Passive Reconnaissance",
@@ -292,7 +429,7 @@ T = {
         "select": "Select: ",
         "examples": "\nExamples:",
         "target": "\nTarget: ",
-        "goodbye": "[osint] Goodbye.",
+        "goodbye": "Goodbye.",
         "no_reports": "\nNo reports found in reports/.",
         "available": "\nAvailable reports:",
         "choose": "\nChoose number: ",
@@ -301,8 +438,8 @@ T = {
         "ask_hint": "Type your question ('q' to go back).",
         "question": "\nQuestion: ",
         "analyzing": "\nAnalyzing: ",
-        "saved": "[saved] ",
-        "error": "[error] ",
+        "saved": "Saved: ",
+        "error": "Error: ",
     },
 }
 
@@ -310,17 +447,16 @@ T = {
 def ask_language() -> str:
     """Ask the user for the language once. Returns 'es' or 'en'."""
     while True:
-        print("\n" + T["en"]["ask_lang"])
+        console.print("\n" + T["en"]["ask_lang"])
         choice = input(T["en"]["ask_lang_prompt"]).strip().lower()
-        if choice in ("1", "es", "espanol", "español"):
+        if choice in ("1", "es", "spanish", "espanol", "español"):
             return "es"
         if choice in ("2", "en", "english", "ingles", "inglés"):
             return "en"
-        print(T["en"]["invalid"])
+        console.print(f"[warn]{T['en']['invalid']}[/warn]")
 
 
 def list_reports() -> list:
-    """Return saved .md reports, newest first."""
     if not settings.reports_dir.exists():
         return []
     return sorted(
@@ -331,7 +467,6 @@ def list_reports() -> list:
 
 
 async def answer_about_report(report_path, question: str) -> str:
-    """Ask the LLM a question about a saved report and return the answer."""
     content = report_path.read_text(encoding="utf-8")
     llm = ChatOpenAI(
         model=settings.deepseek_model,
@@ -376,7 +511,6 @@ VULN_SYSTEM_PROMPT = (
 
 
 async def analyze_vulnerabilities(report_path, language: str = "en") -> str:
-    """Generate a defensive vulnerability / attack-surface analysis from a report."""
     content = report_path.read_text(encoding="utf-8")
     language_name = LANGUAGE_NAMES.get(language, "English")
     llm = ChatOpenAI(
@@ -395,79 +529,72 @@ async def analyze_vulnerabilities(report_path, language: str = "en") -> str:
 
 
 def pick_report(lang: str = "en"):
-    """Show saved reports and let the user choose one. Returns a Path or None."""
     t = T[lang]
     reports = list_reports()
     if not reports:
-        print(t["no_reports"])
+        console.print(f"[warn]{t['no_reports']}[/warn]")
         return None
-    print(t["available"])
+    console.print(t["available"])
     for i, p in enumerate(reports[:30], 1):
-        print(f"  [{i}] {p.name}")
+        console.print(f"  [[cyan]{i}[/cyan]] {p.name}")
     sel = input(t["choose"]).strip()
     if not sel.isdigit() or not (1 <= int(sel) <= len(reports)):
-        print(t["bad_sel"])
+        console.print(f"[warn]{t['bad_sel']}[/warn]")
         return None
     return reports[int(sel) - 1]
 
 
 async def report_qa(lang: str = "en") -> None:
-    """Interactive Q&A over an existing report."""
     t = T[lang]
     report_path = pick_report(lang)
     if report_path is None:
         return
-    print(f"{t['report']}{report_path.name}")
-    print(t["ask_hint"])
+    console.print(f"{t['report']}[cyan]{report_path.name}[/cyan]")
+    console.print(f"[muted]{t['ask_hint']}[/muted]")
     while True:
         question = input(t["question"]).strip()
         if question.lower() in ("q", "quit", "exit", ""):
             return
         try:
             answer = await answer_about_report(report_path, question)
-            print(f"\n{answer}")
+            console.print(f"\n{answer}")
         except Exception as exc:  # noqa: BLE001
-            print(f"{t['error']}{exc}")
+            console.print(f"[error]{t['error']}{exc}[/error]")
 
 
 async def vuln_analysis(lang: str = "en") -> None:
-    """Interactive: pick a report and produce a defensive vulnerability analysis."""
     t = T[lang]
     report_path = pick_report(lang)
     if report_path is None:
         return
-    print(f"{t['analyzing']}{report_path.name} ...")
+    console.print(f"[info]{t['analyzing']}[/info][cyan]{report_path.name}[/cyan] ...")
     try:
         analysis = await analyze_vulnerabilities(report_path, language=lang)
     except Exception as exc:  # noqa: BLE001
-        print(f"{t['error']}{exc}")
+        console.print(f"[error]{t['error']}{exc}[/error]")
         return
-    print("\n" + analysis)
+    console.print("\n" + analysis)
     out_name = f"{report_path.stem}_vuln-analysis"
     paths = reporting.save_report(out_name, analysis)
-    print(f"\n{t['saved']}{paths['markdown']}")
+    console.print(f"\n[success]{t['saved']}[/success]{paths['markdown']}")
 
 
 async def interactive() -> None:
+    console.print(BANNER, style="bold white")
     lang = ask_language()
     t = T[lang]
     while True:
-        print("\n" + "=" * 55)
-        print(t["title"])
-        print("=" * 55)
-        print(t["menu1"])
-        print(t["menu2"])
-        print(t["menu3"])
-        print(t["menuq"])
-        print("=" * 55)
+        console.print()
+        console.print(Panel(
+            f"[cyan]{t['menu1']}[/cyan]\n{t['menu2']}\n{t['menu3']}\n[muted]{t['menuq']}[/muted]",
+            title=f"[header]{t['title']}[/header]",
+            border_style="cyan",
+        ))
 
         choice = input(t["select"]).strip().lower()
         if choice == "1":
-            print(t["examples"])
-            print("  example.com")
-            print("  Acme Corp")
-            print("  John Smith CEO Acme")
-            print("  8.8.8.8")
+            console.print(f"[muted]{t['examples']}[/muted]")
+            console.print("  [muted]example.com  |  Acme Corp  |  john@example.com  |  8.8.8.8[/muted]")
             target = input(t["target"]).strip()
             if target:
                 await run_agent(target, language=lang)
@@ -476,34 +603,69 @@ async def interactive() -> None:
         elif choice == "3":
             await vuln_analysis(lang)
         elif choice in ("q", "quit", "exit", "0"):
-            print(t["goodbye"])
+            console.print(f"[muted]{t['goodbye']}[/muted]")
             break
 
+
+# ── CLI ────────────────────────────────────────────────────────────────────────
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="osint-agent",
         description="Passive OSINT reconnaissance agent (public sources only).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  osint-agent example.com
+  osint-agent "John Smith CEO Acme" --type person --lang es
+  osint-agent 8.8.8.8 --modules ip,dns --quiet
+  osint-agent example.com --output ./my-reports --open
+        """,
     )
-    parser.add_argument("target", nargs="*", help="Target: domain, IP, name, company or username.")
-    parser.add_argument("--batch", metavar="FILE", help="Run targets from a file (one per line).")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON output.")
-    parser.add_argument("--headless", action="store_true", help="Run the browser headless.")
-    parser.add_argument("--model", help="Override the DeepSeek model name.")
-    parser.add_argument("--max-steps", type=int, help="Override the max agent steps.")
+    parser.add_argument("target", nargs="*",
+                        help="Target: domain, IP, email, person name, company or username.")
+    parser.add_argument("-V", "--version", action="version",
+                        version=f"osint-agent {VERSION}")
+    parser.add_argument("--json", action="store_true",
+                        help="Emit machine-readable JSON output.")
+    parser.add_argument("--headless", action="store_true",
+                        help="Run the browser headless.")
+    parser.add_argument("--model",
+                        help="Override the DeepSeek model name.")
+    parser.add_argument("--max-steps", type=int,
+                        help="Override the max agent steps (default: 50).")
     parser.add_argument("--lang", choices=["es", "en"], default="en",
-                        help="Report language (default: en).")
+                        help="Report language: es=Spanish, en=English (default: en).")
+    parser.add_argument("--type",
+                        choices=["domain", "ip", "email", "person", "username", "company"],
+                        dest="target_type", metavar="TYPE",
+                        help="Target type hint: domain, ip, email, person, username, company.")
+    parser.add_argument("--modules", metavar="MODULES",
+                        help=(
+                            "Comma-separated tool modules to activate. "
+                            "Available: dns, whois, ip, web, email, social, archive. "
+                            "Example: --modules dns,whois,ip"
+                        ))
+    parser.add_argument("--output", metavar="DIR",
+                        help="Directory where reports are saved (default: ./reports).")
+    parser.add_argument("--quiet", "-q", action="store_true",
+                        help="Minimal output — only print the report path when done.")
+    parser.add_argument("--open", action="store_true", dest="open_report",
+                        help="Auto-open the report file after the investigation.")
+    parser.add_argument("--delay", type=float, default=0.0, metavar="SECONDS",
+                        help="Delay in seconds between tool calls (default: 0).")
     return parser.parse_args(argv)
 
 
 def apply_overrides(args: argparse.Namespace) -> None:
-    """Apply CLI overrides onto the (frozen) settings via object.__setattr__."""
     if args.headless:
         object.__setattr__(settings, "headless", True)
     if args.model:
         object.__setattr__(settings, "deepseek_model", args.model)
     if args.max_steps:
         object.__setattr__(settings, "max_steps", args.max_steps)
+    if args.output:
+        object.__setattr__(settings, "reports_dir", Path(args.output))
 
 
 async def main() -> None:
@@ -513,22 +675,33 @@ async def main() -> None:
     problems = settings.validate()
     if problems:
         for p in problems:
-            log.error(p)
+            console.print(f"[error]{p}[/error]")
         sys.exit(1)
 
     try:
-        if args.batch:
-            await run_batch(args.batch, as_json=args.json, language=args.lang)
-        elif args.target:
-            await run_agent(" ".join(args.target), as_json=args.json, language=args.lang)
+        if args.target:
+            await run_agent(
+                " ".join(args.target),
+                as_json=args.json,
+                language=args.lang,
+                quiet=args.quiet,
+                delay=args.delay,
+                open_report=args.open_report,
+                target_type=args.target_type,
+                modules=args.modules,
+            )
         else:
             await interactive()
     finally:
         await close_browser()
 
 
-if __name__ == "__main__":
+def cli_main() -> None:
+    """Entry point for `pip install -e .` → `osint-agent` command."""
     import warnings
-
     warnings.filterwarnings("ignore", category=ResourceWarning)
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli_main()

@@ -1,158 +1,132 @@
 # OSINT Agent
 
-Passive OSINT reconnaissance agent built with LangGraph, LangChain, Playwright, and DeepSeek.
+**Passive OSINT reconnaissance powered by an AI agent — domains, IPs, emails, people, usernames and companies.**
 
-The agent gathers information from public sources only, uses browser automation for web research, and saves investigation reports as Markdown (`.md`) files under `reports/`. You can choose the report language (Spanish or English) and ask follow-up questions about any saved report.
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python)](https://www.python.org/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-ReAct-orange)](https://github.com/langchain-ai/langgraph)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Passive only](https://img.shields.io/badge/sources-public%20only-lightgrey)](https://github.com/giovanniromero-dev/osint-agent)
+
+---
+
+```
+  ██████╗ ███████╗██╗███╗   ██╗████████╗ █████╗  ██████╗ ███████╗███╗   ██╗████████╗
+ ██╔═══██╗██╔════╝██║████╗  ██║╚══██╔══╝██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
+ ██║   ██║███████╗██║██╔██╗ ██║   ██║   ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║
+ ██║   ██║╚════██║██║██║╚██╗██║   ██║   ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║
+ ╚██████╔╝███████║██║██║ ╚████║   ██║   ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║
+  ╚═════╝ ╚══════╝╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
+```
+
+An AI agent built on **LangGraph** that autonomously selects and runs OSINT tools, reasons over results, and produces a structured Markdown report — all from public sources, no active scanning.
+
+---
+
+## What it does
+
+You give it a target. The agent figures out what tools to run, in what order, and how to connect the findings into a coherent report. You don't write queries or chain commands manually.
+
+```bash
+osint-agent example.com
+osint-agent 8.8.8.8 --modules ip,dns --lang es
+osint-agent "John Smith CEO Acme" --type person
+osint-agent admin@example.com --type email --open
+```
+
+---
 
 ## Features
 
-- Interactive, one-shot, or batch investigations from the command line (`argparse`).
-- Optional machine-readable JSON output (`--json`) and headless mode (`--headless`).
-- DeepSeek chat model integration through the OpenAI-compatible LangChain client.
-- Centralized configuration (`config.py`) and structured logging.
-- Shared HTTP client with retries, backoff, and a reusable session (`http_client.py`).
-- Browser-based search and navigation with Playwright (stealth hardening included).
-- Public-source OSINT helpers (no API keys required):
-  - DuckDuckGo web search
-  - WHOIS lookup
-  - DNS lookup through Google DoH (A, AAAA, MX, NS, TXT)
-  - Reverse DNS (PTR) lookup
-  - Certificate Transparency lookup through `crt.sh`
-  - IP geolocation through `ip-api.com`
-  - HTTP header / tech fingerprinting
-  - `robots.txt` and sitemap discovery
-  - GitHub profile + repository recon (public API)
-  - Username enumeration across common platforms
-  - Contact extraction from text
-  - Wayback Machine snapshot lookup (single + historical via CDX)
-  - Live TLS certificate inspection (issuer, validity, SANs)
-  - ASN lookup (org + announced prefixes, via BGPView)
-  - Passive port / service / CVE lookup (Shodan InternetDB, no scan)
-  - Email validation (syntax + domain MX check)
-  - Gravatar profile lookup
-  - Common-subdomain discovery via DNS
-  - Page metadata extraction (title, Open Graph, author, favicon)
-- Report generation in Markdown (`.md`), in Spanish or English (your choice).
-- Interactive Q&A mode: ask questions about any previously generated report.
-- Defensive vulnerability / attack-surface analysis from a saved report (no exploitation).
-- Unit tests (`pytest`) covering the pure logic (config, reporting, tools).
+- **23 passive tools** — WHOIS, DNS (5 record types in parallel), crt.sh, ip-api, Shodan InternetDB, BGPView ASN, Gravatar, Wayback Machine, GitHub recon, username enumeration across 10 platforms, subdomain bruteforce (40 words in parallel), TLS cert inspection, port/CVE passive lookup, email validation, page metadata, HTTP headers, robots.txt, contact extraction
+- **AI agent loop** — LangGraph ReAct: the LLM decides which tools to call and stops when it has enough information
+- **Browser automation** — Playwright (Chromium) for DuckDuckGo search and page navigation, with stealth hardening
+- **Modular** — pick only the tool groups you need with `--modules dns,whois,ip`
+- **Rich terminal output** — colored panels, live tool call display, progress
+- **Bilingual** — reports and interface in English or Spanish (`--lang es`)
+- **Report Q&A** — ask follow-up questions about any saved report
+- **Defensive analysis** — get an attack-surface review from any report (no exploitation)
+- **Docker-ready** — `docker run` with zero local install
 
-## Requirements
+---
 
-- Python 3.10 or newer
-- A DeepSeek API key
-- Chrome or Playwright Chromium
+## Quick start
 
-No Node.js or `npm install` is required.
+### Option A — pip install
 
-## Setup
+```bash
+git clone https://github.com/giovanniromero-dev/osint-agent.git
+cd osint-agent
+pip install -e .
+playwright install chromium
 
-From the project directory:
+cp .env.example .env
+# edit .env and add your DEEPSEEK_API_KEY
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python -m playwright install chromium
+osint-agent example.com
 ```
 
-If PowerShell blocks virtual environment activation, run this first in the same terminal:
+### Option B — Docker (no Python setup)
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```bash
+docker build -t osint-agent .
+docker run --env-file .env -v $(pwd)/reports:/app/reports osint-agent example.com
 ```
+
+---
 
 ## Configuration
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and fill in your key:
 
 ```env
-DEEPSEEK_API_KEY=your_deepseek_api_key
-DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_API_KEY=your_key_here
+DEEPSEEK_MODEL=deepseek-chat        # optional, this is the default
 ```
 
-`DEEPSEEK_API_KEY` is required.
+Get a free DeepSeek API key at [platform.deepseek.com](https://platform.deepseek.com).
 
-`DEEPSEEK_MODEL` is optional. If it is not set, the agent defaults to `deepseek-c
-`DEEPSEEK_MODEL` is optional. If it is not set, the agent defaults to `deepseek-chat`.
+Optional overrides (all have sensible defaults):
 
-Other optional environment variables (all have sensible defaults, see `config.py`):
-`OSINT_HEADLESS`, `OSINT_MAX_STEPS`, `OSINT_HTTP_TIMEOUT`, `OSINT_HTTP_RETRIES`,
-`OSINT_LOG_LEVEL`, `OSINT_NAV_TIMEOUT_MS`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_TEMPERATURE`.
+| Variable | Default | Description |
+|---|---|---|
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Override for local models |
+| `DEEPSEEK_TEMPERATURE` | `0` | LLM temperature |
+| `OSINT_HEADLESS` | `false` | Run browser headless |
+| `OSINT_MAX_STEPS` | `50` | Max agent reasoning steps |
+| `OSINT_HTTP_TIMEOUT` | `10` | HTTP timeout in seconds |
+| `OSINT_HTTP_RETRIES` | `3` | Retries on 429/5xx |
+| `OSINT_LOG_LEVEL` | `INFO` | Logging verbosity |
 
-## Usage
+---
 
-Start the interactive menu:
+## CLI reference
 
-```powershell
-python agent.py
+```
+osint-agent [TARGET] [OPTIONS]
+
+Arguments:
+  TARGET              Domain, IP, email, person name, company, or username
+
+Options:
+  -V, --version       Show version
+  --lang {en,es}      Report language (default: en)
+  --type TYPE         Hint: domain | ip | email | person | username | company
+  --modules MODULES   Comma-separated groups: dns,whois,ip,web,email,social,archive
+  --output DIR        Report output directory (default: ./reports)
+  --quiet, -q         Print only the report path when done
+  --open              Open the report after the investigation
+  --delay SECONDS     Delay between tool calls (default: 0)
+  --json              Machine-readable JSON output
+  --headless          Headless browser (no visible window)
+  --model MODEL       Override the DeepSeek model
+  --max-steps N       Override max agent steps
 ```
 
-On launch it asks for the interface language (Spanish or English) **once**.
-From then on, the whole menu, prompts, messages and generated reports use that
-language. The menu offers:
+**Examples:**
 
-- `[1] New investigation` — runs a new recon and writes the report in the
-  chosen language.
-- `[2] Ask about an existing report` — lists saved reports, lets you pick one,
-  and answers your questions about its contents.
-- `[3] Vulnerability analysis of a report` — produces a **defensive**
-  attack-surface review from a saved report: potential weaknesses, information
-  disclosure, and hardening recommendations. It is theoretical only — it never
-  generates exploitation steps — and the analysis is saved as a new report.
-
-Run a direct investigation:
-
-```powershell
-python agent.py "example.com"
-python agent.py "8.8.8.8" --lang es
-python agent.py "Acme Corp"
-python agent.py "John Smith CEO Acme"
-```
-
-Useful flags:
-
-```powershell
-python agent.py example.com --lang es         # report in Spanish (default: en)
-python agent.py example.com --headless        # no visible browser window
-python agent.py example.com --json            # machine-readable output
-python agent.py --batch targets.txt --lang es # one target per line
-python agent.py example.com --model deepseek-chat --max-steps 30
-```
-
-The agent will open a browser window when it needs to search or inspect pages
-(unless `--headless` is used).
-
-## Project Layout
-
-- `agent.py` — LangGraph agent, CLI, interactive menu, and report Q&A.
-- `tools.py` — core OSINT tools exposed to the model.
-- `osint_extra.py` — additional keyless OSINT tools.
-- `config.py` — settings (env-driven) and logging.
-- `http_client.py` — shared requests session with retries.
-- `reporting.py` — Markdown report generation.
-- `tests/` — `pytest` unit tests for the pure logic.
-
-## Testing
-
-```powershell
-pip install pytest
-python -m pytest -q
-```
-
-The tests cover only pure logic (config, report rendering, parsers) and do not
-require network access, a browser, or an API key.
-
-## Output
-
-Generated files are written to:
-
-- `reports/` for Markdown reports and screenshots
-- `chrome_profile/` for the persistent browser profile
-
-Both directories are ignored by Git because they can contain investigation
-output, cookies, sessions, cache, or other local data.
-
-## Safety And Scope
-
-This project is intended for passive reconnaissance using public 
+```bash
+osint-agent example.com
+osint-agent example.com --lang es --open
+osint-agent 8.8.8.8 --modules ip,dns --quiet
+osint-agent "John Smith CEO Acme" --type person --lang es
+osint-agent admin@c

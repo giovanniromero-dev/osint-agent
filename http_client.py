@@ -1,10 +1,12 @@
 """
 Shared HTTP client with a reusable session, sane defaults and retries.
 
-Every network helper in tools.py should use http_get() instead of calling
-requests directly, so timeouts, retries and the User-Agent are consistent.
+Sync: http_get() / get_json()  — for simple helpers
+Async: async_http_get() / async_get_json() — for async tools (run in executor)
 """
 from __future__ import annotations
+
+import asyncio
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -47,19 +49,32 @@ def get_session() -> requests.Session:
 
 
 def http_get(url: str, *, timeout: int | None = None, **kwargs) -> requests.Response:
-    """GET with shared session, default timeout and logging."""
+    """Synchronous GET with shared session, default timeout and logging."""
     timeout = timeout or settings.http_timeout
     log.debug("GET %s", url)
-    resp = get_session().get(url, timeout=timeout, **kwargs)
-    return resp
+    return get_session().get(url, timeout=timeout, **kwargs)
 
 
 def get_json(url: str, *, timeout: int | None = None, **kwargs):
-    """GET and parse JSON, returning None on any failure."""
+    """Synchronous GET and parse JSON, returning None on any failure."""
     try:
         resp = http_get(url, timeout=timeout, **kwargs)
         resp.raise_for_status()
         return resp.json()
-    except Exception as exc:  # noqa: BLE001 - helpers should never raise
+    except Exception as exc:  # noqa: BLE001
         log.warning("get_json failed for %s: %s", url, exc)
         return None
+
+
+# ── Async wrappers ─────────────────────────────────────────────────────────────
+
+async def async_http_get(url: str, *, timeout: int | None = None, **kwargs) -> requests.Response:
+    """Non-blocking GET — runs http_get in a thread-pool executor."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: http_get(url, timeout=timeout, **kwargs))
+
+
+async def async_get_json(url: str, *, timeout: int | None = None, **kwargs):
+    """Non-blocking GET + JSON parse — runs get_json in a thread-pool executor."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: get_json(url, timeout=timeout, **kwargs))

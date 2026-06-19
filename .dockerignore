@@ -1,0 +1,14 @@
+.env
+chrome_profile/
+reports/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+venv/
+.venv/
+*.egg-info/
+.idea/
+.DS_Store
+*.skill
