@@ -84,7 +84,7 @@ class Settings:
     http_retries: int = 3
     http_backoff: float = 0.6
     # Honest, identifiable User-Agent used by default. Stealth mode swaps in a
-    # browser-like UA (see tools.py).
+    # browser-like UA (see tools.browser).
     user_agent: str = (
         "osint-agent/1.0 (+https://github.com/giovanniromero-dev/osint-agent)"
     )

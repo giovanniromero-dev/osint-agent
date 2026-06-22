@@ -48,4 +48,5 @@ Homepage = "https://github.com/giovanniromero-dev/osint-agent"
 Issues   = "https://github.com/giovanniromero-dev/osint-agent/issues"
 
 [tool.setuptools]
-py-modules = ["agent", "tools", "osint_extra", "config", "reporting", "http_client"]
+py-modules = ["agent", "config", "reporting", "http_client"]
+packages = ["tools"]

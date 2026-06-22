@@ -1,11 +1,12 @@
-"""Unit tests for osint_extra pure logic (no live network needed)."""
+"""Unit tests for extra OSINT tool modules (no live network needed)."""
 import asyncio
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import osint_extra
+import tools
+from tools import dns, identity, passive_security
 
 
 def _invoke(t, **kwargs):
@@ -17,16 +18,16 @@ def _invoke(t, **kwargs):
 
 
 def test_clean_domain():
-    assert osint_extra._clean_domain("https://www.Example.com/x") == "example.com"
+    assert tools._clean_domain("https://www.Example.com/x") == "example.com"
 
 
 def test_email_validate_rejects_bad_syntax():
-    out = _invoke(osint_extra.email_validate, email="not-an-email")
+    out = _invoke(identity.email_validate, email="not-an-email")
     assert "Invalid email syntax" in out
 
 
 def test_gravatar_rejects_non_email():
-    out = _invoke(osint_extra.gravatar_lookup, email="nope")
+    out = _invoke(identity.gravatar_lookup, email="nope")
     assert "Invalid email" in out
 
 
@@ -37,19 +38,19 @@ def test_gravatar_handles_network_errors(monkeypatch):
     async def fail_json(*args, **kwargs):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(osint_extra, "async_http_get", fail_get)
-    monkeypatch.setattr(osint_extra, "async_get_json", fail_json)
-    out = _invoke(osint_extra.gravatar_lookup, email="user@example.com")
+    monkeypatch.setattr(identity, "async_http_get", fail_get)
+    monkeypatch.setattr(identity, "async_get_json", fail_json)
+    out = _invoke(identity.gravatar_lookup, email="user@example.com")
     assert "Gravatar lookup error" in out
 
 
 def test_asn_lookup_rejects_non_numeric():
-    out = _invoke(osint_extra.asn_lookup, asn="ASxyz")
+    out = _invoke(passive_security.asn_lookup, asn="ASxyz")
     assert "Invalid ASN" in out
 
 
 def test_extra_tools_registered():
-    names = {t.name for t in osint_extra.EXTRA_TOOLS}
+    names = {t.name for t in tools.EXTRA_TOOLS}
     expected = {
         "ssl_cert_info", "asn_lookup", "port_scan_passive", "email_validate",
         "gravatar_lookup", "subdomain_bruteforce", "extract_metadata", "wayback_snapshots",
@@ -58,11 +59,10 @@ def test_extra_tools_registered():
 
 
 def test_subdomain_wordlist_nonempty():
-    assert len(osint_extra._SUBDOMAIN_WORDS) > 10
+    assert len(dns._SUBDOMAIN_WORDS) > 10
 
 
 def test_full_registry_count_and_unique():
-    import tools
     names = [t.name for t in tools.OSINT_TOOLS]
     assert len(names) == len(set(names))   # no duplicates
     assert len(names) == 26                  # 18 original + 8 new

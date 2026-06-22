@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import tools
+from tools import browser
 
 
 def _invoke(t, **kwargs):
@@ -54,36 +55,36 @@ def test_robots_allows_fail_open_when_unavailable(monkeypatch):
     async def fail_get(*args, **kwargs):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(tools, "async_http_get", fail_get)
-    tools._ROBOTS_CACHE.clear()
-    original_respect = tools.settings.respect_robots
-    original_fail_closed = tools.settings.robots_fail_closed
+    monkeypatch.setattr(browser, "async_http_get", fail_get)
+    browser._ROBOTS_CACHE.clear()
+    original_respect = browser.settings.respect_robots
+    original_fail_closed = browser.settings.robots_fail_closed
     try:
-        object.__setattr__(tools.settings, "respect_robots", True)
-        object.__setattr__(tools.settings, "robots_fail_closed", False)
-        assert asyncio.run(tools._robots_allows("https://example.com/private")) is True
+        object.__setattr__(browser.settings, "respect_robots", True)
+        object.__setattr__(browser.settings, "robots_fail_closed", False)
+        assert asyncio.run(browser._robots_allows("https://example.com/private")) is True
     finally:
-        object.__setattr__(tools.settings, "respect_robots", original_respect)
-        object.__setattr__(tools.settings, "robots_fail_closed", original_fail_closed)
-        tools._ROBOTS_CACHE.clear()
+        object.__setattr__(browser.settings, "respect_robots", original_respect)
+        object.__setattr__(browser.settings, "robots_fail_closed", original_fail_closed)
+        browser._ROBOTS_CACHE.clear()
 
 
 def test_robots_allows_fail_closed_when_configured(monkeypatch):
     async def fail_get(*args, **kwargs):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(tools, "async_http_get", fail_get)
-    tools._ROBOTS_CACHE.clear()
-    original_respect = tools.settings.respect_robots
-    original_fail_closed = tools.settings.robots_fail_closed
+    monkeypatch.setattr(browser, "async_http_get", fail_get)
+    browser._ROBOTS_CACHE.clear()
+    original_respect = browser.settings.respect_robots
+    original_fail_closed = browser.settings.robots_fail_closed
     try:
-        object.__setattr__(tools.settings, "respect_robots", True)
-        object.__setattr__(tools.settings, "robots_fail_closed", True)
-        assert asyncio.run(tools._robots_allows("https://example.com/private")) is False
+        object.__setattr__(browser.settings, "respect_robots", True)
+        object.__setattr__(browser.settings, "robots_fail_closed", True)
+        assert asyncio.run(browser._robots_allows("https://example.com/private")) is False
     finally:
-        object.__setattr__(tools.settings, "respect_robots", original_respect)
-        object.__setattr__(tools.settings, "robots_fail_closed", original_fail_closed)
-        tools._ROBOTS_CACHE.clear()
+        object.__setattr__(browser.settings, "respect_robots", original_respect)
+        object.__setattr__(browser.settings, "robots_fail_closed", original_fail_closed)
+        browser._ROBOTS_CACHE.clear()
 
 
 def test_navigate_adds_https_for_bare_host(monkeypatch):
@@ -93,7 +94,7 @@ def test_navigate_adds_https_for_bare_host(monkeypatch):
         seen["url"] = url
         return False
 
-    monkeypatch.setattr(tools, "_robots_allows", allows)
+    monkeypatch.setattr(browser, "_robots_allows", allows)
     out = _invoke(tools.navigate, url="example.com")
     assert seen["url"] == "https://example.com"
     assert "Blocked by robots.txt" in out
