@@ -172,12 +172,15 @@ async def gravatar_lookup(email: str) -> str:
     avatar_url = f"https://www.gravatar.com/avatar/{h}?d=404"
     profile_url = f"https://www.gravatar.com/{h}.json"
 
-    avatar_resp, profile_data = await asyncio.gather(
-        async_http_get(avatar_url, timeout=settings.http_timeout),
-        async_get_json(profile_url, timeout=settings.http_timeout),
-    )
+    try:
+        avatar_resp, profile_data = await asyncio.gather(
+            async_http_get(avatar_url, timeout=settings.http_timeout),
+            async_get_json(profile_url, timeout=settings.http_timeout),
+        )
+    except Exception as e:  # noqa: BLE001
+        return f"Gravatar lookup error for {email}: {e}"
 
-    has_avatar = avatar_resp.status_code == 200
+    has_avatar = avatar_resp is not None and avatar_resp.status_code == 200
     lines = [f"email: {email}", f"hash: {h}", f"has_avatar: {has_avatar}"]
     if has_avatar:
         lines.append(f"avatar_url: https://www.gravatar.com/avatar/{h}")

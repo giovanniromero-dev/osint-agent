@@ -30,6 +30,19 @@ def test_gravatar_rejects_non_email():
     assert "Invalid email" in out
 
 
+def test_gravatar_handles_network_errors(monkeypatch):
+    async def fail_get(*args, **kwargs):
+        raise RuntimeError("network down")
+
+    async def fail_json(*args, **kwargs):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(osint_extra, "async_http_get", fail_get)
+    monkeypatch.setattr(osint_extra, "async_get_json", fail_json)
+    out = _invoke(osint_extra.gravatar_lookup, email="user@example.com")
+    assert "Gravatar lookup error" in out
+
+
 def test_asn_lookup_rejects_non_numeric():
     out = _invoke(osint_extra.asn_lookup, asn="ASxyz")
     assert "Invalid ASN" in out

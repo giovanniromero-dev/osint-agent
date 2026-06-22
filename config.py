@@ -76,6 +76,7 @@ class Settings:
     # Service. When off, the agent identifies itself honestly and behaves politely.
     stealth: bool = False
     respect_robots: bool = True
+    robots_fail_closed: bool = False
     request_delay: float = 1.0  # seconds to wait between page navigations
 
     # HTTP (network helpers)
@@ -109,6 +110,7 @@ class Settings:
             search_timeout_ms=_get_int("OSINT_SEARCH_TIMEOUT_MS", 20000),
             stealth=_get_bool("OSINT_STEALTH", False),
             respect_robots=_get_bool("OSINT_RESPECT_ROBOTS", True),
+            robots_fail_closed=_get_bool("OSINT_ROBOTS_FAIL_CLOSED", False),
             request_delay=_get_float("OSINT_REQUEST_DELAY", 1.0),
             http_timeout=_get_int("OSINT_HTTP_TIMEOUT", 10),
             http_retries=_get_int("OSINT_HTTP_RETRIES", 3),

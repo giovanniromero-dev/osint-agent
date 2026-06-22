@@ -192,9 +192,9 @@ async def _robots_allows(url: str) -> bool:
                 rp = None
             _ROBOTS_CACHE[host] = rp
         rp = _ROBOTS_CACHE[host]
-        return True if rp is None else rp.can_fetch(settings.user_agent, url)
+        return (not settings.robots_fail_closed) if rp is None else rp.can_fetch(settings.user_agent, url)
     except Exception:  # noqa: BLE001
-        return True  # never let robots handling break a run
+        return not settings.robots_fail_closed
 
 
 # ── Browser tools (serialised via lock) ───────────────────────────────────────
@@ -202,6 +202,8 @@ async def _robots_allows(url: str) -> bool:
 @tool
 async def navigate(url: str) -> str:
     """Navigate to any URL. Use full URLs with https://"""
+    if "://" not in url:
+        url = "https://" + url
     async with _get_browser_lock():
         try:
             if not await _robots_allows(url):

@@ -99,6 +99,7 @@ Optional overrides (all have sensible defaults):
 | `OSINT_HTTP_RETRIES` | `3` | Retries on 429/5xx |
 | `OSINT_LOG_LEVEL` | `INFO` | Logging verbosity |
 | `OSINT_RESPECT_ROBOTS` | `true` | Honor robots.txt when navigating |
+| `OSINT_ROBOTS_FAIL_CLOSED` | `false` | Block navigation when robots.txt cannot be fetched or parsed |
 | `OSINT_REQUEST_DELAY` | `1.0` | Min seconds between page navigations |
 | `OSINT_USER_AGENT` | `osint-agent/1.0 …` | User-Agent sent to sites |
 | `OSINT_STEALTH` | `false` | Anti-bot fingerprint spoofing (authorized use only) |
@@ -131,6 +132,7 @@ Responsible-use controls (override .env defaults / the chosen profile):
   --profile NAME      Scan profile: polite | balanced | aggressive (default: polite)
   --stealth           Enable anti-bot fingerprint spoofing (authorized targets only)
   --ignore-robots     Ignore robots.txt (default: respect it)
+  --strict-robots     Block navigation if robots.txt cannot be read
   --request-delay S   Min seconds between page navigations (default: 1.0)
   --user-agent UA     Override the User-Agent sent to sites
 ```
@@ -178,6 +180,8 @@ scanning**.
 By design, the default behavior is polite:
 
 - **Respects `robots.txt`** (`OSINT_RESPECT_ROBOTS=true` by default).
+- Can fail closed when `robots.txt` cannot be checked (`--strict-robots` or
+  `OSINT_ROBOTS_FAIL_CLOSED=true`).
 - **Rate-limited** between requests (`OSINT_REQUEST_DELAY`, default 1s).
 - **Identifies itself honestly** with a descriptive User-Agent.
 - **Stealth / anti-bot fingerprinting is OFF by default** (`OSINT_STEALTH=false`).

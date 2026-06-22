@@ -34,3 +34,23 @@ def test_list_reports_empty(tmp_path):
         assert agent.list_reports() == []
     finally:
         object.__setattr__(agent.settings, "reports_dir", original)
+
+
+def test_apply_overrides_preserves_zero_max_steps_for_validation():
+    original = agent.settings.max_steps
+    args = agent.parse_args(["example.com", "--max-steps", "0"])
+    try:
+        agent.apply_overrides(args)
+        assert agent.settings.max_steps == 0
+    finally:
+        object.__setattr__(agent.settings, "max_steps", original)
+
+
+def test_apply_overrides_enables_strict_robots():
+    original = agent.settings.robots_fail_closed
+    args = agent.parse_args(["example.com", "--strict-robots"])
+    try:
+        agent.apply_overrides(args)
+        assert agent.settings.robots_fail_closed is True
+    finally:
+        object.__setattr__(agent.settings, "robots_fail_closed", original)

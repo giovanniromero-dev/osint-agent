@@ -715,6 +715,9 @@ all applicable laws (e.g. GDPR) and each service's terms.
     parser.add_argument("--ignore-robots", action="store_true", default=None,
                         dest="ignore_robots",
                         help="Ignore robots.txt when navigating (default: respect it).")
+    parser.add_argument("--strict-robots", action="store_true", default=None,
+                        dest="strict_robots",
+                        help="Fail closed when robots.txt cannot be fetched or parsed.")
     parser.add_argument("--request-delay", type=float, default=None, metavar="SECONDS",
                         dest="request_delay",
                         help="Minimum seconds between page navigations (default: 1.0).")
@@ -744,7 +747,7 @@ def apply_overrides(args: argparse.Namespace) -> None:
         object.__setattr__(settings, "headless", True)
     if args.model:
         object.__setattr__(settings, "deepseek_model", args.model)
-    if args.max_steps:
+    if args.max_steps is not None:
         object.__setattr__(settings, "max_steps", args.max_steps)
     if args.output:
         object.__setattr__(settings, "reports_dir", Path(args.output))
@@ -752,6 +755,8 @@ def apply_overrides(args: argparse.Namespace) -> None:
         object.__setattr__(settings, "stealth", True)
     if args.ignore_robots:
         object.__setattr__(settings, "respect_robots", False)
+    if args.strict_robots:
+        object.__setattr__(settings, "robots_fail_closed", True)
     if args.request_delay is not None:
         object.__setattr__(settings, "request_delay", args.request_delay)
     if args.user_agent:
