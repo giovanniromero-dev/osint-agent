@@ -1,4 +1,5 @@
 """Unit tests for pure tool logic (no network/browser)."""
+import asyncio
 import sys
 from pathlib import Path
 
@@ -9,7 +10,11 @@ import tools
 
 def _invoke(t, **kwargs):
     """Call a LangChain @tool's underlying function directly."""
-    return t.func(**kwargs) if hasattr(t, "func") else t.invoke(kwargs)
+    if getattr(t, "func", None) is not None:
+        return t.func(**kwargs)
+    if getattr(t, "coroutine", None) is not None:
+        return asyncio.run(t.coroutine(**kwargs))
+    return t.invoke(kwargs)
 
 
 def test_clean_domain():

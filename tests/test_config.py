@@ -25,6 +25,29 @@ def test_validate_ok_with_key():
     assert s.validate() == []
 
 
+def test_validate_rejects_invalid_runtime_limits():
+    s = config.Settings(
+        deepseek_api_key="x",
+        max_steps=0,
+        recursion_limit=0,
+        nav_timeout_ms=0,
+        search_timeout_ms=0,
+        http_timeout=0,
+        http_retries=-1,
+        http_backoff=-1,
+        request_delay=-1,
+    )
+    problems = "\n".join(s.validate())
+    assert "OSINT_MAX_STEPS" in problems
+    assert "OSINT_RECURSION_LIMIT" in problems
+    assert "OSINT_NAV_TIMEOUT_MS" in problems
+    assert "OSINT_SEARCH_TIMEOUT_MS" in problems
+    assert "OSINT_HTTP_TIMEOUT" in problems
+    assert "OSINT_HTTP_RETRIES" in problems
+    assert "OSINT_HTTP_BACKOFF" in problems
+    assert "OSINT_REQUEST_DELAY" in problems
+
+
 def test_get_logger_returns_logger():
     log = config.get_logger("test")
     assert log.name == "test"

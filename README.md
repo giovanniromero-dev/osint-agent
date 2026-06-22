@@ -18,7 +18,7 @@
   ╚═════╝ ╚══════╝╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
 ```
 
-An AI agent built on **LangGraph** that autonomously selects and runs OSINT tools, reasons over results, and produces a structured Markdown report — all from public sources, no active scanning.
+An AI agent built on **LangGraph** that autonomously selects and runs OSINT tools, reasons over results, and produces a structured Markdown report from public sources, without exploitation or active port scanning.
 
 ---
 
@@ -37,7 +37,7 @@ osint-agent admin@example.com --type email --open
 
 ## Features
 
-- **23 passive tools** — WHOIS, DNS (5 record types in parallel), crt.sh, ip-api, Shodan InternetDB, BGPView ASN, Gravatar, Wayback Machine, GitHub recon, username enumeration across 10 platforms, subdomain bruteforce (40 words in parallel), TLS cert inspection, port/CVE passive lookup, email validation, page metadata, HTTP headers, robots.txt, contact extraction
+- **26 passive tools** — WHOIS, DNS (5 record types in parallel), crt.sh, ip-api, Shodan InternetDB, BGPView ASN, Gravatar, Wayback Machine, GitHub recon, username enumeration across 10 platforms, subdomain bruteforce (40 words in parallel), TLS cert inspection, port/CVE passive lookup, email validation, page metadata, HTTP headers, robots.txt, contact extraction
 - **AI agent loop** — LangGraph ReAct: the LLM decides which tools to call and stops when it has enough information
 - **Browser automation** — Playwright (Chromium) for DuckDuckGo search and page navigation; polite by default (honors robots.txt, rate-limited, honest User-Agent), with optional opt-in stealth
 - **Modular** — pick only the tool groups you need with `--modules dns,whois,ip`
@@ -93,6 +93,8 @@ Optional overrides (all have sensible defaults):
 | `DEEPSEEK_TEMPERATURE` | `0` | LLM temperature |
 | `OSINT_HEADLESS` | `false` | Run browser headless |
 | `OSINT_MAX_STEPS` | `50` | Max agent reasoning steps |
+| `OSINT_REPORTS_DIR` | `./reports` | Directory where reports and screenshots are saved |
+| `OSINT_CHROME_PROFILE_DIR` | `./chrome_profile` | Persistent browser profile directory |
 | `OSINT_HTTP_TIMEOUT` | `10` | HTTP timeout in seconds |
 | `OSINT_HTTP_RETRIES` | `3` | Retries on 429/5xx |
 | `OSINT_LOG_LEVEL` | `INFO` | Logging verbosity |
@@ -169,8 +171,9 @@ osint-agent admin@company.com --type email
 This tool is provided for **lawful, authorized use only** — security research,
 defensive assessments of assets you own or have explicit written permission to
 analyze, education, and journalism. It collects only **publicly available**
-information from public sources and performs **no active scanning, exploitation,
-or intrusion**.
+information from public sources. It does make normal public web, DNS, HTTP and
+TLS requests, but performs **no exploitation, intrusion, or active port
+scanning**.
 
 By design, the default behavior is polite:
 

@@ -37,6 +37,20 @@ def _get_int(name: str, default: int) -> int:
         return default
 
 
+def _get_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _get_path(name: str, default: Path) -> Path:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    return Path(raw).expanduser()
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime configuration. Immutable; build once with Settings.load()."""
@@ -77,7 +91,7 @@ class Settings:
     # Logging
     log_level: str = "INFO"
 
-    # Derived paths (not from env)
+    # Runtime paths
     reports_dir: Path = field(default=REPORTS_DIR)
     chrome_profile_dir: Path = field(default=CHROME_PROFILE_DIR)
 
@@ -87,7 +101,7 @@ class Settings:
             deepseek_api_key=os.getenv("DEEPSEEK_API_KEY"),
             deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
             deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-            temperature=float(os.getenv("DEEPSEEK_TEMPERATURE", "0") or 0),
+            temperature=_get_float("DEEPSEEK_TEMPERATURE", 0.0),
             max_steps=_get_int("OSINT_MAX_STEPS", 50),
             recursion_limit=_get_int("OSINT_RECURSION_LIMIT", 200),
             headless=_get_bool("OSINT_HEADLESS", False),
@@ -95,15 +109,17 @@ class Settings:
             search_timeout_ms=_get_int("OSINT_SEARCH_TIMEOUT_MS", 20000),
             stealth=_get_bool("OSINT_STEALTH", False),
             respect_robots=_get_bool("OSINT_RESPECT_ROBOTS", True),
-            request_delay=float(os.getenv("OSINT_REQUEST_DELAY", "1.0") or 1.0),
+            request_delay=_get_float("OSINT_REQUEST_DELAY", 1.0),
             http_timeout=_get_int("OSINT_HTTP_TIMEOUT", 10),
             http_retries=_get_int("OSINT_HTTP_RETRIES", 3),
-            http_backoff=float(os.getenv("OSINT_HTTP_BACKOFF", "0.6") or 0.6),
+            http_backoff=_get_float("OSINT_HTTP_BACKOFF", 0.6),
             user_agent=os.getenv(
                 "OSINT_USER_AGENT",
                 "osint-agent/1.0 (+https://github.com/giovanniromero-dev/osint-agent)",
             ),
             log_level=os.getenv("OSINT_LOG_LEVEL", "INFO").upper(),
+            reports_dir=_get_path("OSINT_REPORTS_DIR", REPORTS_DIR),
+            chrome_profile_dir=_get_path("OSINT_CHROME_PROFILE_DIR", CHROME_PROFILE_DIR),
         )
 
     def validate(self) -> list[str]:
@@ -114,6 +130,22 @@ class Settings:
                 "DEEPSEEK_API_KEY is not set. Create a .env file with "
                 "DEEPSEEK_API_KEY=your_key (see README)."
             )
+        if self.max_steps <= 0:
+            problems.append("OSINT_MAX_STEPS must be greater than 0.")
+        if self.recursion_limit <= 0:
+            problems.append("OSINT_RECURSION_LIMIT must be greater than 0.")
+        if self.nav_timeout_ms <= 0:
+            problems.append("OSINT_NAV_TIMEOUT_MS must be greater than 0.")
+        if self.search_timeout_ms <= 0:
+            problems.append("OSINT_SEARCH_TIMEOUT_MS must be greater than 0.")
+        if self.http_timeout <= 0:
+            problems.append("OSINT_HTTP_TIMEOUT must be greater than 0.")
+        if self.http_retries < 0:
+            problems.append("OSINT_HTTP_RETRIES cannot be negative.")
+        if self.http_backoff < 0:
+            problems.append("OSINT_HTTP_BACKOFF cannot be negative.")
+        if self.request_delay < 0:
+            problems.append("OSINT_REQUEST_DELAY cannot be negative.")
         return problems
 
 

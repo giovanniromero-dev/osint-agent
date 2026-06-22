@@ -18,25 +18,34 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
 ]
 dependencies = [
-    "langchain-openai",
-    "langchain-core",
-    "langgraph",
-    "playwright",
-    "python-dotenv",
-    "requests",
-    "python-whois",
-    "rich",
+    "langchain-openai==1.1.10",
+    "langchain-core==1.2.13",
+    "langgraph==1.0.8",
+    "langgraph-prebuilt==1.0.7",
+    "langgraph-checkpoint==4.0.0",
+    "langgraph-sdk==0.3.6",
+    "playwright==1.58.0",
+    "python-dotenv==1.1.1",
+    "requests==2.32.5",
+    "python-whois==0.9.6",
+    "rich==15.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
 ]
 
 [project.scripts]
 osint-agent = "agent:cli_main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/osint-agent"
-Issues   = "https://github.com/yourusername/osint-agent/issues"
+Homepage = "https://github.com/giovanniromero-dev/osint-agent"
+Issues   = "https://github.com/giovanniromero-dev/osint-agent/issues"
 
 [tool.setuptools]
 py-modules = ["agent", "tools", "osint_extra", "config", "reporting", "http_client"]

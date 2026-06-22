@@ -1,4 +1,5 @@
 """Unit tests for osint_extra pure logic (no live network needed)."""
+import asyncio
 import sys
 from pathlib import Path
 
@@ -8,7 +9,11 @@ import osint_extra
 
 
 def _invoke(t, **kwargs):
-    return t.func(**kwargs) if hasattr(t, "func") else t.invoke(kwargs)
+    if getattr(t, "func", None) is not None:
+        return t.func(**kwargs)
+    if getattr(t, "coroutine", None) is not None:
+        return asyncio.run(t.coroutine(**kwargs))
+    return t.invoke(kwargs)
 
 
 def test_clean_domain():

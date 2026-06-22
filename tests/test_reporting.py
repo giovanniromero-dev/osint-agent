@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import reporting
+from config import settings
 
 
 def test_slugify_basic():
@@ -32,3 +33,15 @@ def test_save_report_creates_md_only(tmp_path):
     assert md.read_text(encoding="utf-8") == content
     # no HTML file should be created
     assert list(tmp_path.glob("*.html")) == []
+
+
+def test_save_report_uses_configured_default_dir(tmp_path):
+    original = settings.reports_dir
+    object.__setattr__(settings, "reports_dir", tmp_path)
+    try:
+        paths = reporting.save_report("configured target", "# Report")
+        md = Path(paths["markdown"])
+        assert md.parent == tmp_path
+        assert md.exists()
+    finally:
+        object.__setattr__(settings, "reports_dir", original)

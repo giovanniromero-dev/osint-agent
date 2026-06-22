@@ -2,6 +2,7 @@
 chrome_profile/
 reports/
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 .git/

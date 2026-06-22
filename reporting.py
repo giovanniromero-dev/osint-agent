@@ -10,7 +10,7 @@ import datetime as _dt
 import re
 from pathlib import Path
 
-from config import REPORTS_DIR, get_logger
+from config import get_logger, settings
 
 log = get_logger("osint.reporting")
 
@@ -33,7 +33,7 @@ def save_report(target: str, content: str, *, reports_dir: Path | None = None) -
 
     Returns a dict with the 'markdown' absolute path.
     """
-    reports_dir = Path(reports_dir or REPORTS_DIR)
+    reports_dir = Path(reports_dir or settings.reports_dir)
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     base = f"{slugify(target)}_{timestamp()}"

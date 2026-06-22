@@ -7,6 +7,7 @@ Wayback Machine, GitHub public API, robots.txt / sitemap.xml.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import socket
 import time
@@ -16,7 +17,7 @@ from urllib.parse import urlparse, quote as url_quote
 from langchain_core.tools import tool
 from playwright.async_api import async_playwright, BrowserContext, Page
 
-from config import REPORTS_DIR, get_logger, settings
+from config import get_logger, settings
 from http_client import async_get_json, async_http_get, get_json, http_get
 import reporting
 from osint_extra import EXTRA_TOOLS
@@ -88,7 +89,9 @@ async def ensure_browser() -> Page:
     _playwright_instance = await async_playwright().start()
     profile_dir = str(settings.chrome_profile_dir)
     # Anti-automation flag and a browser-like UA are only used in stealth mode.
-    common_args = ["--no-sandbox"]
+    common_args = []
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        common_args.append("--no-sandbox")
     if settings.stealth:
         common_args.append("--disable-blink-features=AutomationControlled")
     ua = _BROWSER_UA if settings.stealth else settings.user_agent
@@ -252,9 +255,9 @@ async def screenshot() -> str:
     async with _get_browser_lock():
         try:
             page = await ensure_browser()
-            REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+            settings.reports_dir.mkdir(parents=True, exist_ok=True)
             url_slug = re.sub(r"[^\w]", "_", page.url)[:40]
-            path = REPORTS_DIR / f"screenshot_{url_slug}.png"
+            path = settings.reports_dir / f"screenshot_{url_slug}.png"
             await page.screenshot(path=str(path), full_page=False)
             return f"Screenshot saved: {path} | URL: {page.url}"
         except Exception as e:  # noqa: BLE001

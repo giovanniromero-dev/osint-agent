@@ -1,45 +1,47 @@
-# ── Build stage ───────────────────────────────────────────────────────────────
+# Build stage
 FROM python:3.11-slim AS builder
 
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 WORKDIR /app
 
-# Install system deps needed for Playwright/Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget curl gnupg ca-certificates \
+    ca-certificates \
+    curl \
+    gnupg \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements.lock .
+RUN pip install --no-cache-dir -r requirements.txt -c requirements.lock
 
-# Install Chromium browser for Playwright
 RUN playwright install chromium --with-deps
 
-# ── Runtime stage ──────────────────────────────────────────────────────────────
+# Runtime stage
 FROM python:3.11-slim
+
+ENV OSINT_HEADLESS=true \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /ms-playwright /ms-playwright
 
-# Copy Playwright browsers
-COPY --from=builder /root/.cache/ms-playwright /root/.cache/ms-playwright
-
-# Copy Playwright system deps (Chromium libs)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 \
-    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
+RUN apt-get update && playwright install-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy source
 COPY . .
 
-# Reports will be mounted here
-VOLUME ["/app/reports"]
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/reports /app/chrome_profile \
+    && chown -R appuser:appuser /app /ms-playwright /home/appuser
 
-# Default: run headless (no display in container)
-ENV OSINT_HEADLESS=true
+USER appuser
+
+VOLUME ["/app/reports"]
 
 ENTRYPOINT ["python", "agent.py"]
 CMD ["--help"]
